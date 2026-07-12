@@ -1,0 +1,3475 @@
+const axios = require("axios");
+const fetch = require("node-fetch");
+const fs = require("fs");
+const {
+    loadJsonData,
+    saveJsonData,
+    checkCooldown } = require('../lib/function');
+
+const settings = require("../config.js");
+const OWNER_ID = Number(settings.ownerId);
+const ALLOWED_GROUP_ID = settings.groupId;
+
+const {
+    domain,
+    plta,
+    pltc,
+    domainV2,
+    pltaV2,
+    pltcV2,
+    domainV3,
+    pltaV3,
+    pltcV3,
+    domainV4,
+    pltaV4,
+    pltcV4,
+    domainV5,
+    pltaV5,
+    pltcV5,
+    eggs,
+    loc,
+    dev,
+    panel
+} = settings;
+
+const CADP_FILE = "./db/cadp.json";
+
+// file database
+const OWNER_FILE = './db/users/adminID.json';
+
+const OWNERP_FILE = './db/users/ownerID.json';
+const PREMIUM_FILE = './db/users/premiumUsers.json';
+const PREMV2_FILE = './db/users/version/premiumV2.json';
+const PREMV3_FILE = './db/users/version/premiumV3.json';
+const PREMV4_FILE = './db/users/version/premiumV4.json';
+const PREMV5_FILE = './db/users/version/premiumV5.json';
+
+const RESS_FILE = './db/users/resellerUsers.json';
+const RESSV2_FILE = './db/users/version/resellerV2.json';
+const RESSV3_FILE = './db/users/version/resellerV3.json';
+const RESSV4_FILE = './db/users/version/resellerV4.json';
+const RESSV5_FILE = './db/users/version/resellerV5.json';
+
+module.exports = (bot) => {
+// ========== LOCK CREATE ADMIN PANEL ==========
+const LOCK_ADP_FILE = './db/lock_adp.json';
+
+// Fungsi untuk cek apakah user adalah owner bot (dari config.js)
+function isBotOwner(userId) {
+    return String(userId) === String(OWNER_ID);
+}
+
+// Fungsi untuk cek status lock
+function isAdpLocked() {
+    try {
+        if (fs.existsSync(LOCK_ADP_FILE)) {
+            const data = JSON.parse(fs.readFileSync(LOCK_ADP_FILE));
+            return data.locked === true;
+        }
+    } catch (e) {}
+    return false;
+}
+
+// Fungsi untuk set status lock
+function setAdpLock(locked) {
+    if (!fs.existsSync('./db')) fs.mkdirSync('./db');
+    fs.writeFileSync(LOCK_ADP_FILE, JSON.stringify({ locked: locked }, null, 2));
+}
+
+// ========== LOCK CREATE ADMIN PANEL (HANYA OWNER BOT) ==========
+bot.onText(/^\/lockadp$/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id.toString();
+    
+    // Hanya OWNER BOT (pemilik bot) yang bisa lock
+    if (!isBotOwner(userId)) {
+        return bot.sendMessage(chatId, "❌ *AKSES DITOLAK!*\n\nHanya pemilik bot yang bisa mengunci create admin panel!", { parse_mode: "Markdown" });
+    }
+    
+    if (isAdpLocked()) {
+        return bot.sendMessage(chatId, "🔒 Create admin panel sudah terkunci!", { parse_mode: "Markdown" });
+    }
+    
+    setAdpLock(true);
+    bot.sendMessage(chatId, `
+🔒 *CREATE ADMIN PANEL TELAH DIKUNCI!*
+
+━━━━━━━━━━━━━━━━━━━━━
+✅ Semua perintah /cadp, /cadpv2, /cadpv3, /cadpv4, /cadpv5 tidak dapat digunakan.
+✅ Hanya pemilik bot yang bisa membuka kembali.
+━━━━━━━━━━━━━━━━━━━━━
+
+🔓 Untuk membuka, ketik: /unlockadp
+`, { parse_mode: "Markdown" });
+    
+    // Notifikasi ke owner
+    bot.sendMessage(OWNER_ID, `🔒 *LOCK CREATE ADP*\n\nUser: ${msg.from.first_name} (${userId})\nTelah mengunci create admin panel.`);
+});
+
+bot.onText(/^\/unlockadp$/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id.toString();
+    
+    // Hanya OWNER BOT (pemilik bot) yang bisa unlock
+    if (!isBotOwner(userId)) {
+        return bot.sendMessage(chatId, "❌ *AKSES DITOLAK!*\n\nHanya pemilik bot yang bisa membuka create admin panel!", { parse_mode: "Markdown" });
+    }
+    
+    if (!isAdpLocked()) {
+        return bot.sendMessage(chatId, "🔓 Create admin panel tidak dalam keadaan terkunci!", { parse_mode: "Markdown" });
+    }
+    
+    setAdpLock(false);
+    bot.sendMessage(chatId, `
+🔓 *CREATE ADMIN PANEL TELAH DIBUKA!*
+
+━━━━━━━━━━━━━━━━━━━━━
+✅ Semua perintah /cadp, /cadpv2, /cadpv3, /cadpv4, /cadpv5 sudah dapat digunakan kembali.
+━━━━━━━━━━━━━━━━━━━━━
+
+🔒 Untuk mengunci, ketik: /lockadp
+`, { parse_mode: "Markdown" });
+    
+    // Notifikasi ke owner
+    bot.sendMessage(OWNER_ID, `🔓 *UNLOCK CREATE ADP*\n\nUser: ${msg.from.first_name} (${userId})\nTelah membuka create admin panel.`);
+});
+
+    // log command
+function notifyOwner(commandName, msg) {
+    const userId = msg.from.id;
+    const username = msg.from.username || msg.from.first_name;
+    const chatId = msg.chat.id;
+    const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+
+    const logMessage = `<blockquote>💬 Command: /${commandName}
+👤 User: @${username}
+🆔 ID: ${userId}
+🕒 Waktu: ${now}
+</blockquote>
+    `;
+    bot.sendMessage(OWNER_ID, logMessage, { parse_mode: 'HTML' });
+}
+    
+    // info
+// Fungsi escape HTML
+function escapeHtml(text) {
+    if (!text) return '';
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/\*/g, '&#42;')
+        .replace(/_/g, '&#95;')
+        .replace(/`/g, '&#96;');
+}
+
+bot.onText(/^\/info$/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    
+    if (chatId.toString() !== settings.exGroupId) {
+        const ownerUsers = JSON.parse(fs.readFileSync(OWNER_FILE));
+        const isOwner = ownerUsers.includes(String(msg.from.id));
+        if (!isOwner) {
+            return bot.sendMessage(chatId, "Khusus di panel public", {
+                reply_to_message_id: msg.message_id,
+                reply_markup: {
+                    inline_keyboard: [[{ text: "BUY PUBLIC", url: `https://t.me/${dev}` }]],
+                },
+            });
+        }
+    }
+    
+    let targetUser = msg.reply_to_message ? msg.reply_to_message.from : msg.from;
+    const userId = targetUser.id.toString();
+    const username = targetUser.username || "-";
+    const firstName = targetUser.first_name || "User";
+
+    // LOAD ROLE FILES
+    let managersvip = [], managervip = [], kepemilikan = [], ceo = [], dev = [], asisten = [], adp = [], tk = [], pt = [], vip = [], owner = [], reseller = [], premium = [];
+    
+    try {
+        if (fs.existsSync('./db/users/managersvip.json')) managersvip = JSON.parse(fs.readFileSync('./db/users/managersvip.json'));
+        if (fs.existsSync('./db/users/managervip.json')) managervip = JSON.parse(fs.readFileSync('./db/users/managervip.json'));
+        if (fs.existsSync('./db/users/kepemilikan.json')) kepemilikan = JSON.parse(fs.readFileSync('./db/users/kepemilikan.json'));
+        if (fs.existsSync('./db/users/ceo.json')) ceo = JSON.parse(fs.readFileSync('./db/users/ceo.json'));
+        if (fs.existsSync('./db/users/developer.json')) dev = JSON.parse(fs.readFileSync('./db/users/developer.json'));
+        if (fs.existsSync('./db/users/asisten.json')) asisten = JSON.parse(fs.readFileSync('./db/users/asisten.json'));
+        if (fs.existsSync('./db/users/adp.json')) adp = JSON.parse(fs.readFileSync('./db/users/adp.json'));
+        if (fs.existsSync('./db/users/tk.json')) tk = JSON.parse(fs.readFileSync('./db/users/tk.json'));
+        if (fs.existsSync('./db/users/pt.json')) pt = JSON.parse(fs.readFileSync('./db/users/pt.json'));
+        if (fs.existsSync('./db/users/vip.json')) vip = JSON.parse(fs.readFileSync('./db/users/vip.json'));
+        if (fs.existsSync(OWNERP_FILE)) owner = JSON.parse(fs.readFileSync(OWNERP_FILE));
+        if (fs.existsSync(RESS_FILE)) reseller = JSON.parse(fs.readFileSync(RESS_FILE));
+        if (fs.existsSync(PREMIUM_FILE)) premium = JSON.parse(fs.readFileSync(PREMIUM_FILE));
+    } catch (e) {}
+
+    const has = (arr) => arr && arr.includes(userId);
+
+    // STATUS START
+    let statusStart = `❌ ${firstName} belum start bot. Dilarang create!`;
+    let startIcon = "❌";
+    try {
+        await bot.sendMessage(userId, "Start check");
+        statusStart = `✅ ${firstName} sudah start bot! Silahkan create.`;
+        startIcon = "✅";
+        let users = [];
+        if (fs.existsSync(usersFile)) users = JSON.parse(fs.readFileSync(usersFile));
+        if (!users.includes(userId)) {
+            users.push(userId);
+            fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
+        }
+    } catch (err) {}
+
+    // MAIN ROLE (Prioritas dari level tertinggi)
+    let mainRole = "USER";
+    if (has(managersvip)) mainRole = "MANAGER SVIP";
+    else if (has(managervip)) mainRole = "MANAGER VIP";
+    else if (has(kepemilikan)) mainRole = "KEPEMILIKAN";
+    else if (has(vip)) mainRole = "VIP MEMBER";
+    else if (has(asisten)) mainRole = "ASISTEN";
+    else if (has(dev)) mainRole = "DEVELOPER";
+    else if (has(ceo)) mainRole = "CEO";
+    else if (has(tk)) mainRole = "TANGAN KANAN";
+    else if (has(owner)) mainRole = "OWNER";
+    else if (has(adp)) mainRole = "ADMIN PANEL";
+    else if (has(pt)) mainRole = "PARTNER";
+    else if (has(reseller)) mainRole = "RESELLER";
+    else if (has(premium)) mainRole = "PREMIUM";
+
+    // BUILD MESSAGE
+    const txtInfo = `
+┌────────────────────────────────┐
+│           USER INFO            │
+└────────────────────────────────┘
+
+Nama: ${firstName}
+Username: @${username}
+ID: ${userId}
+
+┌────────────────────────────────┐
+│          ROLE LIST             │
+├────────────────────────────────┤
+│  MANAGER SVIP    : ${has(managersvip) ? '✅' : '❌'}
+│  MANAGER VIP     : ${has(managervip) ? '✅' : '❌'}
+│  KEPEMILIKAN     : ${has(kepemilikan) ? '✅' : '❌'}
+│  VIP MEMBER    : ${has(vip) ? '✅' : '❌'}
+│  ASISTEN         : ${has(asisten) ? '✅' : '❌'}
+│  DEVELOPER     : ${has(dev) ? '✅' : '❌'}
+│  CEO            : ${has(ceo) ? '✅' : '❌'}
+│  TANGAN KANAN   : ${has(tk) ? '✅' : '❌'}
+│  OWNER           : ${has(owner) ? '✅' : '❌'}
+│  ADMIN PANEL     : ${has(adp) ? '✅' : '❌'}
+│  PARTNER         : ${has(pt) ? '✅' : '❌'}
+│  RESELLER        : ${has(reseller) ? '✅' : '❌'}
+│  PREMIUM         : ${has(premium) ? '✅' : '❌'}
+└────────────────────────────────┘
+
+┌────────────────────────────────┐
+│            STATUS              │
+├────────────────────────────────┤
+│ ${startIcon} ${statusStart}
+└────────────────────────────────┘
+`;
+
+    bot.sendMessage(chatId, txtInfo, {
+        parse_mode: "HTML",
+        reply_to_message_id: msg.message_id
+    });
+});
+    
+    // scpu
+bot.onText(/\/scpu (.+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const input = match[1].split(",");
+
+  if (input.length !== 3) {
+    return bot.sendMessage(chatId, "❌ Format salah!\nContoh:\n`/scpu domain,ptla,ptlc`", { parse_mode: "Markdown" });
+  }
+
+  const [domain, plta, pltc] = input.map(x => x.trim());
+
+  bot.sendMessage(chatId, "⏳ Sedang cek CPU server...");
+  try {
+    let page = 1;
+    let totalPages = 1;
+    let hasil = "📊 *Monitoring CPU Server*\n\n";
+
+    do {
+      const serversRes = await axios.get(`${domain}/api/application/servers?page=${page}`, {
+        headers: { Authorization: `Bearer ${plta}`, Accept: "application/json" },
+      });
+
+      const servers = serversRes.data.data;
+      totalPages = serversRes.data.meta.pagination.total_pages;
+
+      for (const s of servers) {
+        const name = s.attributes.name;
+        const uuidShort = s.attributes.uuid.split("-")[0];
+
+        try {
+          const utilRes = await axios.get(
+            `${domain}/api/client/servers/${uuidShort}/resources`,
+            { headers: { Authorization: `Bearer ${pltc}`, Accept: "application/json" } }
+          );
+
+          const cpu = utilRes.data.attributes.resources.cpu_absolute;
+
+          if (cpu >= 80) {
+            hasil += `⚠️ *${name}* - CPU: ${cpu}%\n`;
+          }
+        } catch (err) {
+          console.error(`Utilization error ${name}:`, err.message);
+        }
+      }
+
+      page++;
+    } while (page <= totalPages);
+
+    if (hasil === "📊 *Monitoring CPU Server*\n\n") {
+      hasil += "Status Server:\n✅ Semua server normal (CPU < 80%)";
+    }
+
+    bot.sendMessage(chatId, hasil, { parse_mode: "Markdown", reply_to_message_id: msg.message_id });
+  } catch (error) {
+    console.error(error.message);
+    bot.sendMessage(chatId, "❌ Gagal mengambil data server!");
+  }
+});
+    
+    // monitoring
+bot.onText(/\/servercpu/, async (msg) => {
+  const chatId = msg.chat.id;
+  if (chatId.toString() !== settings.exGroupId) {
+  const ownerUsers = JSON.parse(fs.readFileSync(OWNER_FILE));
+  const isOwner = ownerUsers.includes(String(msg.from.id));
+
+  if (!isOwner) {
+    return bot.sendMessage(chatId, "ᴋʜᴜꜱᴜꜱ ᴅɪ ᴘᴀɴᴇʟ ᴘᴜʙʟɪᴄ", {
+      reply_to_message_id: msg.message_id,
+      reply_markup: {
+        inline_keyboard: [[{ text: "ʙᴜʏ ᴘᴜʙʟɪᴄ", url: `https://t.me/${dev}` }]],
+      },
+    });
+  }
+}
+
+  bot.sendMessage(chatId, "⏳");
+  try {
+    let page = 1;
+    let totalPages = 1;
+    let hasil = "📊 *Monitoring CPU Server*\n\n";
+
+    do {
+      const serversRes = await axios.get(`${domain}/api/application/servers?page=${page}`, {
+        headers: { Authorization: `Bearer ${plta}`, Accept: "application/json" },
+      });
+
+      const servers = serversRes.data.data;
+      totalPages = serversRes.data.meta.pagination.total_pages;
+
+      for (const s of servers) {
+        const name = s.attributes.name;
+        const idServer = s.attributes.id; // ambil ID server
+        const uuidShort = s.attributes.uuid.split("-")[0]; // uuidShort buat client API
+
+        try {
+          const utilRes = await axios.get(
+            `${domain}/api/client/servers/${uuidShort}/resources`,
+            { headers: { Authorization: `Bearer ${pltc}`, Accept: "application/json" } }
+          );
+
+          const cpu = utilRes.data.attributes.resources.cpu_absolute;
+
+          if (cpu >= 80) {
+            hasil += `⚠️ *${name}* (ID: \`${idServer}\`) - CPU: ${cpu}%\n`;
+          }
+        } catch (err) {
+          console.error(`Utilization error ${name}:`, err.message);
+        }
+      }
+
+      page++;
+    } while (page <= totalPages);
+
+    if (hasil === "📊 *Monitoring CPU Server*\n\n") {
+      hasil += "Status Server:\n✅ Semua server normal (CPU < 80%)";
+    }
+
+    bot.sendMessage(chatId, hasil, { parse_mode: "Markdown", reply_to_message_id: msg.message_id });
+  } catch (error) {
+    console.error(error.message);
+    bot.sendMessage(chatId, "❌ Gagal mengambil data server!");
+  }
+});
+
+    // cadp
+bot.onText(/^\/cadp(?:\s+(.+))?$/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+
+  if (chatId.toString() !== settings.exGroupId) {
+    const ownerUsers = JSON.parse(fs.readFileSync(OWNER_FILE));
+    const isOwner = ownerUsers.includes(String(msg.from.id));
+    if (!isOwner) {
+      return bot.sendMessage(chatId, "ᴋʜᴜꜱᴜꜱ ᴅɪ ᴘᴀɴᴇʟ ᴘᴜʙʟɪᴄ", {
+        reply_to_message_id: msg.message_id,
+        reply_markup: {
+          inline_keyboard: [[{ text: "ʙᴜʏ ᴘᴜʙʟɪᴄ", url: `https://t.me/${dev}` }]],
+        },
+      });
+    }
+  }
+
+  // ========== CEK AKSES ADP (HANYA ADMIN PANEL KE ATAS) ==========
+  const allowedRolesAdp = [
+    { file: './db/users/adp.json', name: 'ADMIN PANEL' },
+    { file: OWNERP_FILE, name: 'OWNER' },
+    { file: './db/users/tk.json', name: 'TANGAN KANAN' },
+    { file: './db/users/ceo.json', name: 'CEO' },
+    { file: './db/users/developer.json', name: 'DEVELOPER' },
+    { file: './db/users/asisten.json', name: 'ASISTEN' },
+    { file: './db/users/vip.json', name: 'VIP MEMBER' },
+    { file: './db/users/kepemilikan.json', name: 'KEPEMILIKAN' },
+    { file: './db/users/managervip.json', name: 'MANAGER VIP' },
+    { file: './db/users/managersvip.json', name: 'MANAGER SVIP' }
+  ];
+
+  let hasAccess = false;
+  for (const role of allowedRolesAdp) {
+    try {
+      if (fs.existsSync(role.file)) {
+        const data = JSON.parse(fs.readFileSync(role.file));
+        if (data.includes(String(userId))) {
+          hasAccess = true;
+          break;
+        }
+      }
+    } catch (e) {}
+  }
+
+  if (!hasAccess) {
+    return bot.sendMessage(chatId, "❌ *AKSES DITOLAK!*\n\nHanya ADMIN PANEL, OWNER, TK, CEO, DEVELOPER, ASISTEN, VIP MEMBER, KEPEMILIKAN, MANAGER VIP, MANAGER SVIP yang bisa menggunakan perintah ini!", { parse_mode: "Markdown" });
+  }
+
+  // ✅ CEK LOCK
+  if (isAdpLocked()) {
+    return bot.sendMessage(chatId, "🔒 *CREATE ADMIN PANEL SEDANG DIKUNCI!*\n\nTidak dapat membuat ADMIN PANEL baru saat ini.\n\nHubungi pemilik bot untuk membuka kunci.", { parse_mode: "Markdown" });
+  }
+
+  const waktu = checkCooldown(userId);
+  if (waktu > 0) {
+    return bot.sendMessage(chatId, `⏳ Tunggu ${waktu} detik sebelum bisa pakai command /cadp lagi!`, { reply_to_message_id: msg.message_id });
+  }
+
+  // --- Handling aman params ---
+  const rawParams = (match && match[1]) ? match[1].trim() : "";
+  if (!rawParams) {
+    return bot.sendMessage(chatId, "❌ Format Salah!\nPenggunaan: /cadp nama,idtele");
+  }
+
+  const commandParams = rawParams.split(",").map(x => x.trim()).filter(Boolean);
+  if (commandParams.length < 2) {
+    return bot.sendMessage(chatId, "❌ Format Salah!\nPenggunaan: /cadp nama,idtele");
+  }
+
+  const panelName = commandParams[0];
+  const telegramId = commandParams[1];
+  const password = panelName + Math.random().toString(36).slice(2, 5);
+
+  try {
+    const response = await fetch(`${domain}/api/application/users`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${plta}`,
+      },
+      body: JSON.stringify({
+        email: `${panelName}@gmail.com`,
+        username: panelName,
+        first_name: panelName,
+        last_name: "admin",
+        language: "en",
+        root_admin: true,
+        password: password,
+      }),
+    });
+
+    const data = await response.json();
+    if (data.errors) {
+      bot.sendMessage(chatId, JSON.stringify(data.errors[0], null, 2));
+      return;
+    }
+
+    const user = data.attributes;
+    const userInfo = `
+TYPE: ADMIN PANEL
+➟ ID: ${user.id}
+➟ USERNAME: ${user.username}
+➟ EMAIL: ${user.email}
+➟ NAME: ${user.first_name} ${user.last_name}
+➟ LANGUAGE: ${user.language}
+➟ ADMIN: ${user.root_admin}
+➟ CREATED AT: ${user.created_at}
+    `;
+    bot.sendMessage(chatId, userInfo);
+
+    const caption = `🔐 Sukses Created Admin Panel!
+
+👤 Username: <code>${user.username}</code>
+🔑 Password: <code>${password}</code>
+🌐 Login: ${domain}
+
+<blockquote>📌 Catatan :
+Simpan informasi data ini dengan aman
+dan jangan bagikan ke orang lain!
+</blockquote>
+`;
+
+    await bot.sendPhoto(telegramId, panel, { caption, parse_mode: "HTML" });
+
+  } catch (error) {
+    console.error(error);
+    bot.sendMessage(chatId, "❌ Terjadi kesalahan dalam pembuatan admin. Silakan coba lagi nanti.");
+  }
+});
+
+    // cadpv2
+bot.onText(/\/cadpv2(?:\s+(.+))?/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const text = match[1];
+    
+  if (msg.chat.type !== "group" && msg.chat.type !== "supergroup") {
+  bot.sendMessage(msg.chat.id, "❌ ᴋʜᴜꜱᴜꜱ ɢʀᴜᴘ!");
+  return;
+  }
+    
+  const premV2Users = JSON.parse(fs.readFileSync(PREMV2_FILE));
+  const isPremiumV2 = premV2Users.includes(String(msg.from.id));   
+      if (!isPremiumV2) {
+    bot.sendMessage(chatId, "❌ ᴋʜᴜꜱᴜꜱ ᴘʀᴇᴍɪᴜᴍ ᴠ2!", {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "ᴊᴏɪɴ ꜱᴇʀᴠᴇʀ", url: `https://t.me/${dev}` }],
+        ],
+      },
+    });
+    return;
+  }
+    
+    // ✅ TAMBAHKAN PENGECEKAN LOCK DI SINI
+  if (isAdpLocked()) {
+      return bot.sendMessage(chatId, "🔒 *CREATE ADMIN PANEL SEDANG DIKUNCI!*\n\nTidak dapat membuat ADMIN PANEL baru saat ini.\n\nHubungi pemilik bot untuk membuka kunci.", { parse_mode: "Markdown" });
+  }
+    
+    
+  const waktu = checkCooldown(msg.from.id);
+    if (waktu > 0) return bot.sendMessage(chatId, `⏳ Tunggu ${waktu} detik sebelum bisa pakai command /cadpv2 lagi!`, { reply_to_message_id: msg.message_id });
+  
+  const commandParams = match[1].split(",");
+if (commandParams.length < 2) {
+  bot.sendMessage(
+    chatId,
+    "❌ Format Salah! Penggunaan: /cadpv2 nama,idtele"
+  );
+  return;
+}
+
+  const panelName = commandParams[0].trim();
+  const telegramId = commandParams[1].trim();
+
+  const password = panelName + Math.random().toString(36).slice(2, 5);
+    
+  try {
+    const response = await fetch(`${domainV2}/api/application/users`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pltaV2}`,
+      },
+      body: JSON.stringify({
+        email: `${panelName}@gmail.com`,
+        username: panelName,
+        first_name: panelName,
+        last_name: "admin",
+        language: "en",
+        root_admin: true,
+        password: password,
+      }),
+    });
+    const data = await response.json();
+    if (data.errors) {
+      bot.sendMessage(chatId, JSON.stringify(data.errors[0], null, 2));
+      return;
+    }
+    const user = data.attributes;
+    const userInfo = `
+TYPE: ADMIN PANEL V2
+➟ ID: ${user.id}
+➟ USERNAME: ${user.username}
+➟ EMAIL: ${user.email}
+➟ NAME: ${user.first_name} ${user.last_name}
+➟ LANGUAGE: ${user.language}
+➟ ADMIN: ${user.root_admin}
+➟ CREATED AT: ${user.created_at}
+    `;
+    bot.sendMessage(chatId, userInfo);
+     
+    const caption = `🔐 Sukses Created Admin Panel V2!
+
+👤 Username: <code>${user.username}</code>
+🔑 Password: <code>${password}</code>
+🌐 Login: ${domainV2}
+
+<blockquote>📌 Catatan :
+Simpan informasi data ini dengan aman
+dan jangan bagikan ke orang lain!
+</blockquote>
+`;
+
+bot.sendPhoto(telegramId, panel, { caption, parse_mode: "HTML" });
+   
+  } catch (error) {
+    console.error(error);
+    bot.sendMessage(
+      chatId,
+      "Terjadi kesalahan dalam pembuatan admin. Silakan coba lagi nanti."
+    );
+  }
+});
+ 
+    // cadpv3
+bot.onText(/\/cadpv3(?:\s+(.+))?/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const text = match[1];
+    
+  if (msg.chat.type !== "group" && msg.chat.type !== "supergroup") {
+  bot.sendMessage(msg.chat.id, "❌ ᴋʜᴜꜱᴜꜱ ɢʀᴜᴘ!");
+  return;
+}
+    
+  const premV3Users = JSON.parse(fs.readFileSync(PREMV3_FILE));
+  const isPremiumV3 = premV3Users.includes(String(msg.from.id));   
+      if (!isPremiumV3) {
+    bot.sendMessage(chatId, "❌ ᴋʜᴜꜱᴜꜱ ᴘʀᴇᴍɪᴜᴍ ᴠ3!", {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "ᴊᴏɪɴ ꜱᴇʀᴠᴇʀ", url: `https://t.me/${dev}` }],
+        ],
+      },
+    });
+    return;
+  }
+  
+  // ✅ TAMBAHKAN PENGECEKAN LOCK DI SINI
+  if (isAdpLocked()) {
+      return bot.sendMessage(chatId, "🔒 *CREATE ADMIN PANEL SEDANG DIKUNCI!*\n\nTidak dapat membuat ADMIN PANEL baru saat ini.\n\nHubungi pemilik bot untuk membuka kunci.", { parse_mode: "Markdown" });
+  }
+  
+  
+  const commandParams = match[1].split(",");
+if (commandParams.length < 2) {
+  bot.sendMessage(
+    chatId,
+    "❌ Format Salah! Penggunaan: /cadpv3 nama,idtele"
+  );
+  return;
+}
+    
+  const waktu = checkCooldown(msg.from.id);
+    if (waktu > 0) return bot.sendMessage(chatId, `⏳ Tunggu ${waktu} detik sebelum bisa pakai command /cadpv3 lagi!`, { reply_to_message_id: msg.message_id });
+
+  const panelName = commandParams[0].trim();
+  const telegramId = commandParams[1].trim();
+
+  const password = panelName + Math.random().toString(36).slice(2, 5);
+    
+  try {
+    const response = await fetch(`${domainV3}/api/application/users`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pltaV3}`,
+      },
+      body: JSON.stringify({
+        email: `${panelName}@gmail.coml`,
+        username: panelName,
+        first_name: panelName,
+        last_name: "admin",
+        language: "en",
+        root_admin: true,
+        password: password,
+      }),
+    });
+    const data = await response.json();
+    if (data.errors) {
+      bot.sendMessage(chatId, JSON.stringify(data.errors[0], null, 2));
+      return;
+    }
+    const user = data.attributes;
+    const userInfo = `
+TYPE: ADMIN PANEL V3
+➟ ID: ${user.id}
+➟ USERNAME: ${user.username}
+➟ EMAIL: ${user.email}
+➟ NAME: ${user.first_name} ${user.last_name}
+➟ LANGUAGE: ${user.language}
+➟ ADMIN: ${user.root_admin}
+➟ CREATED AT: ${user.created_at}
+    `;
+    bot.sendMessage(chatId, userInfo);
+     
+    const caption = `🔐 Sukses Created Admin Panel V3!
+
+👤 Username: <code>${user.username}</code>
+🔑 Password: <code>${password}</code>
+🌐 Login: ${domainV3}
+
+<blockquote>📌 Catatan :
+Simpan informasi data ini dengan aman
+dan jangan bagikan ke orang lain!
+</blockquote>
+`;
+
+bot.sendPhoto(telegramId, panel, { caption, parse_mode: "HTML" });
+   
+  } catch (error) {
+    console.error(error);
+    bot.sendMessage(
+      chatId,
+      "Terjadi kesalahan dalam pembuatan admin. Silakan coba lagi nanti."
+    );
+  }
+});
+    
+    // cadpv4
+bot.onText(/\/cadpv4(?:\s+(.+))?/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const text = match[1];
+    
+  if (msg.chat.type !== "group" && msg.chat.type !== "supergroup") {
+  bot.sendMessage(msg.chat.id, "❌ ᴋʜᴜꜱᴜꜱ ɢʀᴜᴘ!");
+  return;
+}
+    
+  const premV4Users = JSON.parse(fs.readFileSync(PREMV4_FILE));
+  const isPremiumV4 = premV4Users.includes(String(msg.from.id));   
+      if (!isPremiumV4) {
+    bot.sendMessage(chatId, "❌ ᴋʜᴜꜱᴜꜱ ᴘʀᴇᴍɪᴜᴍ ᴠ4!", {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "ᴊᴏɪɴ ꜱᴇʀᴠᴇʀ", url: `https://t.me/${dev}` }],
+        ],
+      },
+    });
+    return;
+  }
+  
+   // ✅ TAMBAHKAN PENGECEKAN LOCK DI SINI
+  if (isAdpLocked()) {
+      return bot.sendMessage(chatId, "🔒 *CREATE ADMIN PANEL SEDANG DIKUNCI!*\n\nTidak dapat membuat ADMIN PANEL baru saat ini.\n\nHubungi pemilik bot untuk membuka kunci.", { parse_mode: "Markdown" });
+  }
+  
+  
+  const commandParams = match[1].split(",");
+if (commandParams.length < 2) {
+  bot.sendMessage(
+    chatId,
+    "❌ Format Salah! Penggunaan: /cadpv4 nama,idtele"
+  );
+  return;
+}
+    
+  const waktu = checkCooldown(msg.from.id);
+    if (waktu > 0) return bot.sendMessage(chatId, `⏳ Tunggu ${waktu} detik sebelum bisa pakai command /cadpv4 lagi!`, { reply_to_message_id: msg.message_id });
+
+  const panelName = commandParams[0].trim();
+  const telegramId = commandParams[1].trim();
+
+  const password = panelName + Math.random().toString(36).slice(2, 5);
+    
+  try {
+    const response = await fetch(`${domainV4}/api/application/users`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pltaV4}`,
+      },
+      body: JSON.stringify({
+        email: `${panelName}@gmail.com`,
+        username: panelName,
+        first_name: panelName,
+        last_name: "admin",
+        language: "en",
+        root_admin: true,
+        password: password,
+      }),
+    });
+    const data = await response.json();
+    if (data.errors) {
+      bot.sendMessage(chatId, JSON.stringify(data.errors[0], null, 2));
+      return;
+    }
+    const user = data.attributes;
+    const userInfo = `
+TYPE: ADMIN PANEL V4
+➟ ID: ${user.id}
+➟ USERNAME: ${user.username}
+➟ EMAIL: ${user.email}
+➟ NAME: ${user.first_name} ${user.last_name}
+➟ LANGUAGE: ${user.language}
+➟ ADMIN: ${user.root_admin}
+➟ CREATED AT: ${user.created_at}
+    `;
+    bot.sendMessage(chatId, userInfo);
+     
+    const caption = `🔐 Sukses Created Admin Panel V4!
+
+👤 Username: <code>${user.username}</code>
+🔑 Password: <code>${password}</code>
+🌐 Login: ${domainV4}
+
+<blockquote>📌 Catatan :
+Simpan informasi data ini dengan aman
+dan jangan bagikan ke orang lain!
+</blockquote>
+`;
+
+bot.sendPhoto(telegramId, panel, { caption, parse_mode: "HTML" });
+   
+  } catch (error) {
+    console.error(error);
+    bot.sendMessage(
+      chatId,
+      "Terjadi kesalahan dalam pembuatan admin. Silakan coba lagi nanti."
+    );
+  }
+});
+    
+    // cadpv5
+bot.onText(/\/cadpv5(?:\s+(.+))?/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const text = match[1];
+    
+  if (msg.chat.type !== "group" && msg.chat.type !== "supergroup") {
+  bot.sendMessage(msg.chat.id, "❌ ᴋʜᴜꜱᴜꜱ ɢʀᴜᴘ!");
+  return;
+}
+    
+  const premV5Users = JSON.parse(fs.readFileSync(PREMV5_FILE));
+  const isPremiumV5 = premV5Users.includes(String(msg.from.id));   
+      if (!isPremiumV5) {
+    bot.sendMessage(chatId, "❌ ᴋʜᴜꜱᴜꜱ ᴘʀᴇᴍɪᴜᴍ ᴠ5!", {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "ᴊᴏɪɴ ꜱᴇʀᴠᴇʀ", url: `https://t.me/${dev}` }],
+        ],
+      },
+    });
+    return;
+  }
+  
+    // ✅ TAMBAHKAN PENGECEKAN LOCK DI SINI
+  if (isAdpLocked()) {
+      return bot.sendMessage(chatId, "🔒 *CREATE ADMIN PANEL SEDANG DIKUNCI!*\n\nTidak dapat membuat ADMIN PANEL baru saat ini.\n\nHubungi pemilik bot untuk membuka kunci.", { parse_mode: "Markdown" });
+  }
+    
+    
+  const waktu = checkCooldown(msg.from.id);
+    if (waktu > 0) return bot.sendMessage(chatId, `⏳ Tunggu ${waktu} detik sebelum bisa pakai command /cadpv5 lagi!`, { reply_to_message_id: msg.message_id });
+  
+  const commandParams = match[1].split(",");
+if (commandParams.length < 2) {
+  bot.sendMessage(
+    chatId,
+    "❌ Format Salah! Penggunaan: /cadpv5 nama,idtele"
+  );
+  return;
+}
+
+  const panelName = commandParams[0].trim();
+  const telegramId = commandParams[1].trim();
+
+  const password = panelName + Math.random().toString(36).slice(2, 5);
+    
+  try {
+    const response = await fetch(`${domainV5}/api/application/users`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pltaV5}`,
+      },
+      body: JSON.stringify({
+        email: `${panelName}@gmail.com`,
+        username: panelName,
+        first_name: panelName,
+        last_name: "admin",
+        language: "en",
+        root_admin: true,
+        password: password,
+      }),
+    });
+    const data = await response.json();
+    if (data.errors) {
+      bot.sendMessage(chatId, JSON.stringify(data.errors[0], null, 2));
+      return;
+    }
+    const user = data.attributes;
+    const userInfo = `
+TYPE: ADMIN PANEL V5
+➟ ID: ${user.id}
+➟ USERNAME: ${user.username}
+➟ EMAIL: ${user.email}
+➟ NAME: ${user.first_name} ${user.last_name}
+➟ LANGUAGE: ${user.language}
+➟ ADMIN: ${user.root_admin}
+➟ CREATED AT: ${user.created_at}
+    `;
+    bot.sendMessage(chatId, userInfo);
+     
+    const caption = `🔐 Sukses Created Admin Panel V5!
+
+👤 Username: <code>${user.username}</code>
+🔑 Password: <code>${password}</code>
+🌐 Login: ${domainV5}
+
+<blockquote>📌 Catatan :
+Simpan informasi data ini dengan aman
+dan jangan bagikan ke orang lain!
+</blockquote>
+`;
+
+bot.sendPhoto(telegramId, panel, { caption, parse_mode: "HTML" });
+   
+  } catch (error) {
+    console.error(error);
+    bot.sendMessage(
+      chatId,
+      "Terjadi kesalahan dalam pembuatan admin. Silakan coba lagi nanti."
+    );
+  }
+});
+    
+bot.onText(/\/listcadp/, (msg) => {
+  const chatId = msg.chat.id;
+
+  if (!fs.existsSync(CADP_FILE)) {
+    return bot.sendMessage(chatId, "❌ Tidak ada data user tersimpan.");
+  }
+
+  const db = JSON.parse(fs.readFileSync(CADP_FILE));
+
+  if (db.length === 0) {
+    return bot.sendMessage(chatId, "❌ Belum ada user yang tercatat.");
+  }
+
+  let text = "<b>📋 User yang /cadp:</b>\n\n";
+  db.forEach((id, index) => {
+    text += `${index + 1}. <code>${id}</code>\n`;
+  });
+
+  bot.sendMessage(chatId, text, { parse_mode: "HTML" });
+});
+
+// ========== LOCK CREATE UNLI PANEL ==========
+const LOCK_UNLI_FILE = './db/lock_unli.json';
+
+// Fungsi untuk cek status lock unli
+function isUnliLocked() {
+    try {
+        if (fs.existsSync(LOCK_UNLI_FILE)) {
+            const data = JSON.parse(fs.readFileSync(LOCK_UNLI_FILE));
+            return data.locked === true;
+        }
+    } catch (e) {}
+    return false;
+}
+
+// Fungsi untuk set status lock unli
+function setUnliLock(locked) {
+    if (!fs.existsSync('./db')) fs.mkdirSync('./db');
+    fs.writeFileSync(LOCK_UNLI_FILE, JSON.stringify({ locked: locked }, null, 2));
+}
+
+// ========== LOCK CREATE UNLI PANEL (HANYA OWNER BOT) ==========
+bot.onText(/^\/lockunli$/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id.toString();
+    
+    // Hanya OWNER BOT (pemilik bot) yang bisa lock
+    if (!isBotOwner(userId)) {
+        return bot.sendMessage(chatId, "❌ *AKSES DITOLAK!*\n\nHanya pemilik bot yang bisa mengunci create unli panel!", { parse_mode: "Markdown" });
+    }
+    
+    if (isUnliLocked()) {
+        return bot.sendMessage(chatId, "🔒 Create unli panel sudah terkunci!", { parse_mode: "Markdown" });
+    }
+    
+    setUnliLock(true);
+    bot.sendMessage(chatId, `
+🔒 *CREATE UNLI PANEL TELAH DIKUNCI!*
+
+━━━━━━━━━━━━━━━━━━━━━
+✅ Semua perintah /unli, /unliv2, /unliv3, /unliv4, /unliv5 tidak dapat digunakan.
+✅ Hanya pemilik bot yang bisa membuka kembali.
+━━━━━━━━━━━━━━━━━━━━━
+
+🔓 Untuk membuka, ketik: /unlockunli
+`, { parse_mode: "Markdown" });
+    
+    // Notifikasi ke owner
+    bot.sendMessage(OWNER_ID, `🔒 *LOCK UNLI PANEL*\n\nUser: ${msg.from.first_name} (${userId})\nTelah mengunci create unli panel.`);
+});
+
+bot.onText(/^\/unlockunli$/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id.toString();
+    
+    // Hanya OWNER BOT (pemilik bot) yang bisa unlock
+    if (!isBotOwner(userId)) {
+        return bot.sendMessage(chatId, "❌ *AKSES DITOLAK!*\n\nHanya pemilik bot yang bisa membuka create unli panel!", { parse_mode: "Markdown" });
+    }
+    
+    if (!isUnliLocked()) {
+        return bot.sendMessage(chatId, "🔓 Create unli panel tidak dalam keadaan terkunci!", { parse_mode: "Markdown" });
+    }
+    
+    setUnliLock(false);
+    bot.sendMessage(chatId, `
+🔓 *CREATE UNLI PANEL TELAH DIBUKA!*
+
+━━━━━━━━━━━━━━━━━━━━━
+✅ Semua perintah /unli, /unliv2, /unliv3, /unliv4, /unliv5 sudah dapat digunakan kembali.
+━━━━━━━━━━━━━━━━━━━━━
+
+🔒 Untuk mengunci, ketik: /lockunli
+`, { parse_mode: "Markdown" });
+    
+    // Notifikasi ke owner
+    bot.sendMessage(OWNER_ID, `🔓 *UNLOCK UNLI PANEL*\n\nUser: ${msg.from.first_name} (${userId})\nTelah membuka create unli panel.`);
+});
+    
+    // unli ke whatsapp
+bot.onText(/\/unliwa (.+)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  
+  if ((msg.chat.type !== "group" && msg.chat.type !== "supergroup") && msg.from.id !== OWNER_ID) {
+    return bot.sendMessage(chatId, "❌ ᴋʜᴜꜱᴜꜱ ɢʀᴜᴘ!");
+  }
+    
+  const text = match[1];
+
+  const isCooldown = checkCooldown(msg);
+  if (isCooldown) return bot.sendMessage(chatId, isCooldown);
+
+  const ressUsers = JSON.parse(fs.readFileSync(RESS_FILE));
+  const isReseller = ressUsers.includes(String(msg.from.id));
+
+  if (!isReseller) {
+    return bot.sendMessage(chatId, "❌ Khusus Reseller!", {
+      reply_markup: {
+        inline_keyboard: [[{ text: `LAPORAN", url: "https://t.me/${dev}` }]],
+      },
+    });
+  }
+
+  const t = text.split(",");
+  if (t.length < 2) {
+    return bot.sendMessage(chatId, "⚠️ Format: /unli namapanel,nomorwa");
+  }
+
+  const username = t[0].trim();
+  const waNumber = t[1].replace(/[^0-9]/g, ""); // nomor WA tujuan
+  const jid = waNumber + "@s.whatsapp.net"; // jid WA
+  const name = username + "unli";
+  const egg = settings.eggs;
+  const loc = settings.loc;
+  const memo = "0";
+  const cpu = "0";
+  const disk = "0";
+  const email = `${username}@gmail.com`;
+  const spc =
+    'if [[ -d .git ]] && [[ {{AUTO_UPDATE}} == "1" ]]; then git pull; fi; if [[ ! -z ${NODE_PACKAGES} ]]; then /usr/local/bin/npm install ${NODE_PACKAGES}; fi; if [[ ! -z ${UNNODE_PACKAGES} ]]; then /usr/local/bin/npm uninstall ${UNNODE_PACKAGES}; fi; if [ -f /home/container/package.json ]; then /usr/local/bin/npm install; fi; /usr/local/bin/${CMD_RUN}';
+  const password = username + Math.random().toString(36).slice(2, 5);
+    
+  let user;
+  let server;
+
+  try {
+    // CREATE USER
+    const response = await fetch(`${domain}/api/application/users`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${plta}`,
+      },
+      body: JSON.stringify({
+        email: email,
+        username: username,
+        first_name: username,
+        last_name: username,
+        language: "en",
+        password: password,
+      }),
+    });
+
+    const data = await response.json();
+    if (data.errors) {
+      return bot.sendMessage(
+        chatId,
+        `❌ Error: ${JSON.stringify(data.errors[0], null, 2)}`
+      );
+    }
+    user = data.attributes;
+
+    // CREATE SERVER
+    const response2 = await fetch(`${domain}/api/application/servers`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${plta}`,
+      },
+      body: JSON.stringify({
+        name: name,
+        description: "",
+        user: user.id,
+        egg: parseInt(egg),
+        docker_image: "ghcr.io/parkervcp/yolks:nodejs_20",
+        startup: spc,
+        environment: {
+          INST: "npm",
+          USER_UPLOAD: "0",
+          AUTO_UPDATE: "0",
+          CMD_RUN: "npm start",
+        },
+        limits: {
+          memory: memo,
+          swap: 0,
+          disk: disk,
+          io: 500,
+          cpu: cpu,
+        },
+        feature_limits: {
+          databases: 5,
+          backups: 5,
+          allocations: 1,
+        },
+        deploy: {
+          locations: [parseInt(loc)],
+          dedicated_ip: false,
+          port_range: [],
+        },
+      }),
+    });
+
+    const data2 = await response2.json();
+    if (data2.errors) {
+      return bot.sendMessage(
+        chatId,
+        `❌ Error saat buat server: ${JSON.stringify(data2.errors[0], null, 2)}`
+      );
+    }
+    server = data2.attributes;
+  } catch (error) {
+    return bot.sendMessage(chatId, `❌ Error: ${error.message}`);
+  }
+
+  if (user && server) {
+    // kirim ke WA
+    await sock.sendMessage(jid, {
+  image: { url: panel },
+  caption: `*🔐 Sukses Created Panel!*
+▸ Name: ${username}
+▸ Email: ${email}
+▸ ID: ${user.id}
+
+*🌐 Domain Panel*
+▸ Username: ${user.username}
+▸ Password: ${password}
+▸ Login: ${domain}
+
+*⚠️ Rules Panel*
+▸ Sensor domain
+▸ Simpan data akun
+▸ Garansi 15 hari`
+  });
+
+    // notif di Telegram
+    bot.sendMessage(
+      chatId,
+      `✅ Sukses kirim panel ke Nomer WhatsApp: ${waNumber}`
+    );
+  } else {
+    bot.sendMessage(
+      chatId,
+      `❌ Akun panel tidak ada! Laporkan ke @${dev}.`
+    );
+  }
+});
+    
+    // unli
+bot.onText(/^\/unli(?:\s+(.+))?$/, async (msg, match) => {
+  const chatId = msg.chat.id;
+
+  if (chatId.toString() !== settings.exGroupId) {
+    const ownerUsers = JSON.parse(fs.readFileSync(OWNER_FILE));
+    const isOwner = ownerUsers.includes(String(msg.from.id));
+    if (!isOwner) {
+      return bot.sendMessage(chatId, "Khusus di panel public", {
+        reply_to_message_id: msg.message_id,
+        reply_markup: {
+          inline_keyboard: [[{ text: "BUY PUBLIC", url: `https://t.me/${dev}` }]],
+        },
+      });
+    }
+  }
+
+  const text = match[1];
+  if (!text) return bot.sendMessage(chatId, "❌ Format salah!\nContoh: /unli nama,id");
+
+  // ========== CEK AKSES UNLI ==========
+  const allowedRoles = [
+    { file: PREMIUM_FILE, name: 'PREMIUM' },
+    { file: RESS_FILE, name: 'RESELLER' },
+    { file: './db/users/pt.json', name: 'PARTNER' },
+    { file: './db/users/adp.json', name: 'ADMIN PANEL' },
+    { file: OWNERP_FILE, name: 'OWNER' },
+    { file: './db/users/tk.json', name: 'TANGAN KANAN' },
+    { file: './db/users/ceo.json', name: 'CEO' },
+    { file: './db/users/developer.json', name: 'DEVELOPER' },
+    { file: './db/users/asisten.json', name: 'ASISTEN' },
+    { file: './db/users/vip.json', name: 'VIP MEMBER' },
+    { file: './db/users/kepemilikan.json', name: 'KEPEMILIKAN' },
+    { file: './db/users/managervip.json', name: 'MANAGER VIP' },
+    { file: './db/users/managersvip.json', name: 'MANAGER SVIP' }
+  ];
+
+  let hasAccess = false;
+  for (const role of allowedRoles) {
+    try {
+      if (fs.existsSync(role.file)) {
+        const data = JSON.parse(fs.readFileSync(role.file));
+        if (data.includes(String(msg.from.id))) {
+          hasAccess = true;
+          break;
+        }
+      }
+    } catch (e) {}
+  }
+
+  if (!hasAccess) {
+    return bot.sendMessage(chatId, "❌ *AKSES DITOLAK!*\n\nHanya Premium, Reseller, Partner, ADP, Owner, TK, CEO, Developer, Asisten, VIP Member, Kepemilikan, Manager VIP, Manager SVIP yang bisa menggunakan perintah ini!", { parse_mode: "Markdown" });
+  }
+
+  // Cek lock unli
+  if (isUnliLocked()) {
+    return bot.sendMessage(chatId, "🔒 *CREATE UNLI PANEL SEDANG DIKUNCI!*\n\nTidak dapat membuat UNLI PANEL baru saat ini.\n\nHubungi pemilik bot untuk membuka kunci.", { parse_mode: "Markdown" });
+  }
+
+  const waktu = checkCooldown(msg.from.id);
+  if (waktu > 0) {
+    return bot.sendMessage(chatId, `⏳ Tunggu ${waktu} detik sebelum bisa pakai command /unli lagi!`, { reply_to_message_id: msg.message_id });
+  }
+
+  const t = text.split(",");
+  if (t.length < 2) return bot.sendMessage(chatId, "⚠️ Format: /unli namapanel,idtele");
+
+  const username = t[0].trim();
+  const u = parseInt(t[1].trim());
+
+  try {
+    await bot.getChat(u);
+  } catch (err) {
+    if (err.response && err.response.statusCode === 400) {
+      return bot.sendMessage(chatId, `❌ User dengan ID ${u} tidak ditemukan atau belum pernah start bot!`, {
+        reply_to_message_id: msg.message_id
+      });
+    } else {
+      return bot.sendMessage(chatId, `⚠️ Gagal memeriksa user ID ${u}: ${err.message}`, {
+        reply_to_message_id: msg.message_id
+      });
+    }
+  }
+
+  await bot.sendMessage(chatId, "⏳");
+
+  try {
+    const name = username + "unli";
+    const egg = eggs;
+    const loc = settings.loc;
+    const memo = "0";
+    const cpu = "0";
+    const disk = "0";
+    const email = `${username}@gmail.com`;
+    const password = username + Math.random().toString(36).slice(2, 5);
+    const spc = 'if [[ -d .git ]] && [[ {{AUTO_UPDATE}} == "1" ]]; then git pull; fi; if [[ ! -z ${NODE_PACKAGES} ]]; then /usr/local/bin/npm install ${NODE_PACKAGES}; fi; if [[ ! -z ${UNNODE_PACKAGES} ]]; then /usr/local/bin/npm uninstall ${UNNODE_PACKAGES}; fi; if [ -f /home/container/package.json ]; then /usr/local/bin/npm install; fi; /usr/local/bin/${CMD_RUN}';
+
+    const resUser = await fetch(`${domain}/api/application/users`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${plta}`,
+      },
+      body: JSON.stringify({
+        email: email,
+        username: username,
+        first_name: username,
+        last_name: username,
+        language: "en",
+        password: password,
+      }),
+    });
+
+    const dataUser = await resUser.json();
+    if (dataUser.errors) throw new Error(`Gagal buat user: ${dataUser.errors[0].detail || dataUser.errors[0].code}`);
+
+    const user = dataUser.attributes;
+
+    const resServer = await fetch(`${domain}/api/application/servers`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${plta}`,
+      },
+      body: JSON.stringify({
+        name: name,
+        user: user.id,
+        egg: parseInt(egg),
+        docker_image: "ghcr.io/parkervcp/yolks:nodejs_20",
+        startup: spc,
+        environment: {
+          INST: "npm",
+          USER_UPLOAD: "0",
+          AUTO_UPDATE: "0",
+          CMD_RUN: "npm start",
+        },
+        limits: { memory: memo, swap: 0, disk: disk, io: 500, cpu: cpu },
+        feature_limits: { databases: 5, backups: 5, allocations: 1 },
+        deploy: { locations: [parseInt(loc)], dedicated_ip: false, port_range: [] },
+      }),
+    });
+
+    const dataServer = await resServer.json();
+    if (dataServer.errors) throw new Error(`Gagal buat server: ${dataServer.errors[0].detail || dataServer.errors[0].code}`);
+
+    const server = dataServer.attributes;
+      
+    bot.sendMessage(chatId, `Type: Panel Unli\n📡 ID: ${user.id}\n👤 USERNAME: ${username}\n⚙️ MEMORY: ${server.limits.memory === 0 ? "Unlimited" : server.limits.memory} MB`);
+
+    await bot.sendPhoto(u, panel, {
+      caption: `🔐 *Sukses Created Panel!*\n▸ Name: ${username}\n▸ Email: ${email}\n▸ ID: ${user.id}\n▸ RAM: Unlimited\n\n🌐 *Akun Panel*\n▸ Username: \`${username}\`\n▸ Password: \`${password}\`\n▸ Login: ${domain}\n\n⚠️ *Rules Panel*\n▸ Sensor domain\n▸ No DDOS/Share Free\n▸ Garansi 15 hari`,
+      parse_mode: "Markdown",
+    });
+
+    await bot.sendMessage(chatId, `✅ Berhasil kirim panel ke @${msg.from.username}\n(ID: ${u})`, {
+      reply_to_message_id: msg.message_id,
+    });
+
+  } catch (err) {
+    bot.sendMessage(chatId, `❌ Gagal membuat panel\n${err.message}`, {
+      reply_to_message_id: msg.message_id,
+    });
+    return;
+  }
+});
+    
+   // unli v2
+bot.onText(/\/unliv2(?:\s+(.+))?/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const text = match[1];
+    
+  if (msg.chat.type !== "group" && msg.chat.type !== "supergroup") {
+  bot.sendMessage(msg.chat.id, "❌ ᴋʜᴜꜱᴜꜱ ɢʀᴜᴘ!");
+  return;
+  }
+
+  const waktu = checkCooldown(msg.from.id);
+    if (waktu > 0) return bot.sendMessage(chatId, `⏳ Tunggu ${waktu} detik sebelum bisa pakai command /unliv2 lagi!`, { reply_to_message_id: msg.message_id });
+    
+  const ressV2Users = JSON.parse(fs.readFileSync(RESSV2_FILE));
+  const isResellerV2 = ressV2Users.includes(String(msg.from.id));   
+      if (!isResellerV2) {
+    bot.sendMessage(chatId, "❌ ᴋʜᴜꜱᴜꜱ ʀᴇꜱᴇʟʟᴇʀ ᴠ2!", {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "ᴊᴏɪɴ ꜱᴇʀᴠᴇʀ", url: `https://t.me/${dev}` }],
+        ],
+      },
+    });
+    return;
+  }
+  
+    // Cek apakah create unli panel sedang dikunci
+if (isUnliLocked()) {
+    return bot.sendMessage(chatId, "🔒 *CREATE UNLI PANEL SEDANG DIKUNCI!*\n\nTidak dapat membuat UNLI PANEL baru saat ini.\n\nHubungi pemilik bot untuk membuka kunci.", { parse_mode: "Markdown" });
+}
+
+  const t = text.split(",");
+  if (t.length < 2) {
+    bot.sendMessage(chatId, "⚠️ Format: /unliv2 namapanel,idtele");
+    return;
+  }
+
+  const username = t[0].trim();
+  const u = parseInt(t[1].trim());
+  const name = username + "unli";
+  const egg = eggs;
+  const loc = settings.loc;
+  const memo = "0";
+  const cpu = "0";
+  const disk = "0";
+  const email = `${username}@gmail.com`;
+  const spc =
+    'if [[ -d .git ]] && [[ {{AUTO_UPDATE}} == "1" ]]; then git pull; fi; if [[ ! -z ${NODE_PACKAGES} ]]; then /usr/local/bin/npm install ${NODE_PACKAGES}; fi; if [[ ! -z ${UNNODE_PACKAGES} ]]; then /usr/local/bin/npm uninstall ${UNNODE_PACKAGES}; fi; if [ -f /home/container/package.json ]; then /usr/local/bin/npm install; fi; /usr/local/bin/${CMD_RUN}';
+  const password = username + Math.random().toString(36).slice(2, 5);
+    
+  let user;
+  let server;
+
+  try {
+    // CREATE USER
+    const response = await fetch(`${domainV2}/api/application/users`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pltaV2}`,
+      },
+      body: JSON.stringify({
+        email: email,
+        username: username,
+        first_name: username,
+        last_name: username,
+        language: "en",
+        password: password,
+      }),
+    });
+
+    const data = await response.json();
+    if (data.errors) {
+      if (
+        data.errors[0].meta.rule === "unique" &&
+        data.errors[0].meta.source_field === "email"
+      ) {
+        bot.sendMessage(chatId, "⚠️ Email & Username sudah ada di panel! Coba lagi.");
+      } else {
+        bot.sendMessage(chatId, `❌ Error: ${JSON.stringify(data.errors[0], null, 2)}`);
+      }
+      return;
+    }
+    user = data.attributes;
+
+    // CREATE SERVER
+    const response2 = await fetch(`${domainV2}/api/application/servers`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pltaV2}`,
+      },
+      body: JSON.stringify({
+        name: name,
+        description: "",
+        user: user.id,
+        egg: parseInt(egg),
+        docker_image: "ghcr.io/parkervcp/yolks:nodejs_20",
+        startup: spc,
+        environment: {
+          INST: "npm",
+          USER_UPLOAD: "0",
+          AUTO_UPDATE: "0",
+          CMD_RUN: "npm start",
+        },
+        limits: {
+          memory: memo,
+          swap: 0,
+          disk: disk,
+          io: 500,
+          cpu: cpu,
+        },
+        feature_limits: {
+          databases: 5,
+          backups: 5,
+          allocations: 1,
+        },
+        deploy: {
+          locations: [parseInt(loc)],
+          dedicated_ip: false,
+          port_range: [],
+        },
+      }),
+    });
+
+    const data2 = await response2.json();
+    if (data2.errors) {
+      bot.sendMessage(chatId, `❌ Error saat buat server: ${JSON.stringify(data2.errors[0], null, 2)}`);
+      return;
+    }
+    server = data2.attributes;
+
+  } catch (error) {
+    bot.sendMessage(chatId, `❌ Error: ${error.message}`);
+    return;
+  }
+
+  if (user && server) {
+    bot.sendMessage(
+      chatId,
+      `Type: Panel Unli V2
+📡 ID: ${user.id}
+👤 USERNAME: ${username}
+⚙️ MEMORY: ${server.limits.memory === 0 ? "Unlimited" : server.limits.memory} MB
+`
+    );
+
+function esc(text) {
+  return String(text).replace(/([_*\[\]()~`>#+\-=|{}.!])/g, '\\$1');
+}
+
+const safeName = esc(username);
+const safeEmail = esc(email);
+const safeId = esc(user.id);
+const safeUser = esc(user.username);
+const safePass = esc(password);
+const safeDomain = esc(domainV2);
+
+// copy
+const copyUser = `\`${safeUser}\``;
+const copyPass = `\`${safePass}\``;
+    
+// spoiler
+const spoilerDomain = `||${safeDomain}||`;
+
+bot.sendPhoto(u, panel, {
+  caption: `🔐 *Sukses Created Panel V2\\!*
+▸ Name: ${safeName}
+▸ Email: ${safeEmail}
+▸ ID: ${safeId}
+▸ RAM: Unlimited
+
+🌐 *Akun Panel V2*
+▸ Username: ${copyUser}
+▸ Password: ${copyPass}
+▸ Login: ${spoilerDomain}
+
+⚠️ *Rules Panel*
+▸ Sensor domain
+▸ Simpan data akun
+▸ Garansi 15 hari`,
+  parse_mode: "MarkdownV2",
+  reply_markup: {
+    inline_keyboard: [
+      [
+        { text: "🌐 Domain", url: domainV2 },
+        { text: "🔑 Salin Password", switch_inline_query_current_chat: password }
+      ],
+    ],
+  },
+});
+
+    bot.sendMessage(
+      chatId,
+      `✅ Berhasil kirim panel V2 ke @${msg.from.username}\n(ID: ${u})`
+    );
+  } else {
+    bot.sendMessage(chatId, `❌ Akun panel tidak ada! Laporkan ke @${dev}.`);
+  }
+});
+    
+  // unli v3
+bot.onText(/\/unliv3(?:\s+(.+))?/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const text = match[1];
+    
+  if (msg.chat.type !== "group" && msg.chat.type !== "supergroup") {
+  bot.sendMessage(msg.chat.id, "❌ ᴋʜᴜꜱᴜꜱ ɢʀᴜᴘ!");
+  return;
+  }
+
+  const waktu = checkCooldown(msg.from.id);
+    if (waktu > 0) return bot.sendMessage(chatId, `⏳ Tunggu ${waktu} detik sebelum bisa pakai command /unliv3 lagi!`, { reply_to_message_id: msg.message_id });
+    
+  const ressV3Users = JSON.parse(fs.readFileSync(RESSV3_FILE));
+  const isResellerV3 = ressV3Users.includes(String(msg.from.id));   
+      if (!isResellerV3) {
+    bot.sendMessage(chatId, "❌ ᴋʜᴜꜱᴜꜱ ʀᴇꜱᴇʟʟᴇʀ ᴠ3!", {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "ᴊᴏɪɴ ꜱᴇʀᴠᴇʀ", url: `https://t.me/${dev}` }],
+        ],
+      },
+    });
+    return;
+  }
+  
+    // Cek apakah create unli panel sedang dikunci
+if (isUnliLocked()) {
+    return bot.sendMessage(chatId, "🔒 *CREATE UNLI PANEL SEDANG DIKUNCI!*\n\nTidak dapat membuat UNLI PANEL baru saat ini.\n\nHubungi pemilik bot untuk membuka kunci.", { parse_mode: "Markdown" });
+}
+
+  const t = text.split(",");
+  if (t.length < 2) {
+    bot.sendMessage(chatId, "⚠️ Format: /unliv3 namapanel,idtele");
+    return;
+  }
+
+  const username = t[0].trim();
+  const u = parseInt(t[1].trim());
+  const name = username + "unli";
+  const egg = eggs;
+  const loc = settings.loc;
+  const memo = "0";
+  const cpu = "0";
+  const disk = "0";
+  const email = `${username}@gmail.com`;
+  const spc =
+    'if [[ -d .git ]] && [[ {{AUTO_UPDATE}} == "1" ]]; then git pull; fi; if [[ ! -z ${NODE_PACKAGES} ]]; then /usr/local/bin/npm install ${NODE_PACKAGES}; fi; if [[ ! -z ${UNNODE_PACKAGES} ]]; then /usr/local/bin/npm uninstall ${UNNODE_PACKAGES}; fi; if [ -f /home/container/package.json ]; then /usr/local/bin/npm install; fi; /usr/local/bin/${CMD_RUN}';
+  const password = username + Math.random().toString(36).slice(2, 5);
+    
+  let user;
+  let server;
+
+  try {
+    // CREATE USER
+    const response = await fetch(`${domainV3}/api/application/users`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pltaV3}`,
+      },
+      body: JSON.stringify({
+        email: email,
+        username: username,
+        first_name: username,
+        last_name: username,
+        language: "en",
+        password: password,
+      }),
+    });
+
+    const data = await response.json();
+    if (data.errors) {
+      if (
+        data.errors[0].meta.rule === "unique" &&
+        data.errors[0].meta.source_field === "email"
+      ) {
+        bot.sendMessage(chatId, "⚠️ Email & Username sudah ada di panel! Coba lagi.");
+      } else {
+        bot.sendMessage(chatId, `❌ Error: ${JSON.stringify(data.errors[0], null, 2)}`);
+      }
+      return;
+    }
+    user = data.attributes;
+
+    // CREATE SERVER
+    const response2 = await fetch(`${domainV3}/api/application/servers`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pltaV3}`,
+      },
+      body: JSON.stringify({
+        name: name,
+        description: "",
+        user: user.id,
+        egg: parseInt(egg),
+        docker_image: "ghcr.io/parkervcp/yolks:nodejs_20",
+        startup: spc,
+        environment: {
+          INST: "npm",
+          USER_UPLOAD: "0",
+          AUTO_UPDATE: "0",
+          CMD_RUN: "npm start",
+        },
+        limits: {
+          memory: memo,
+          swap: 0,
+          disk: disk,
+          io: 500,
+          cpu: cpu,
+        },
+        feature_limits: {
+          databases: 5,
+          backups: 5,
+          allocations: 1,
+        },
+        deploy: {
+          locations: [parseInt(loc)],
+          dedicated_ip: false,
+          port_range: [],
+        },
+      }),
+    });
+
+    const data2 = await response2.json();
+    if (data2.errors) {
+      bot.sendMessage(chatId, `❌ Error saat buat server: ${JSON.stringify(data2.errors[0], null, 2)}`);
+      return;
+    }
+    server = data2.attributes;
+
+  } catch (error) {
+    bot.sendMessage(chatId, `❌ Error: ${error.message}`);
+    return;
+  }
+
+  if (user && server) {
+    bot.sendMessage(
+      chatId,
+      `Type: Panel Unli V3
+📡 ID: ${user.id}
+👤 USERNAME: ${username}
+⚙️ MEMORY: ${server.limits.memory === 0 ? "Unlimited" : server.limits.memory} MB
+`
+    );
+
+function esc(text) {
+  return String(text).replace(/([_*\[\]()~`>#+\-=|{}.!])/g, '\\$1');
+}
+
+const safeName = esc(username);
+const safeEmail = esc(email);
+const safeId = esc(user.id);
+const safeUser = esc(user.username);
+const safePass = esc(password);
+const safeDomain = esc(domainV3);
+
+// copy
+const copyUser = `\`${safeUser}\``;
+const copyPass = `\`${safePass}\``;
+    
+// spoiler
+const spoilerDomain = `||${safeDomain}||`;
+
+bot.sendPhoto(u, panel, {
+  caption: `🔐 *Sukses Created Panel V3\\!*
+▸ Name: ${safeName}
+▸ Email: ${safeEmail}
+▸ ID: ${safeId}
+▸ RAM: Unlimited
+
+🌐 *Akun Panel V3*
+▸ Username: ${copyUser}
+▸ Password: ${copyPass}
+▸ Login: ${spoilerDomain}
+
+⚠️ *Rules Panel*
+▸ Sensor domain
+▸ Simpan data akun
+▸ Garansi 15 hari`,
+  parse_mode: "MarkdownV2",
+  reply_markup: {
+    inline_keyboard: [
+      [
+        { text: "🌐 Domain", url: domainV3 },
+        { text: "🔑 Salin Password", switch_inline_query_current_chat: password }
+      ],
+    ],
+  },
+});
+
+    bot.sendMessage(
+      chatId,
+      `✅ Berhasil kirim panel V3 ke @${msg.from.username}\n(ID: ${u})`
+    );
+  } else {
+    bot.sendMessage(chatId, `❌ Akun panel tidak ada! Laporkan ke @${dev}.`);
+  }
+});
+   
+  // unli v4
+bot.onText(/\/unliv4(?:\s+(.+))?/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const text = match[1];
+    
+  if (msg.chat.type !== "group" && msg.chat.type !== "supergroup") {
+  bot.sendMessage(msg.chat.id, "❌ ᴋʜᴜꜱᴜꜱ ɢʀᴜᴘ!");
+  return;
+  }
+
+  const waktu = checkCooldown(msg.from.id);
+    if (waktu > 0) return bot.sendMessage(chatId, `⏳ Tunggu ${waktu} detik sebelum bisa pakai command /unliv4 lagi!`, { reply_to_message_id: msg.message_id });
+    
+  const ressV4Users = JSON.parse(fs.readFileSync(RESSV4_FILE));
+  const isResellerV4 = ressV4Users.includes(String(msg.from.id));   
+      if (!isResellerV4) {
+    bot.sendMessage(chatId, "❌ ᴋʜᴜꜱᴜꜱ ʀᴇꜱᴇʟʟᴇʀ ᴠ4!", {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "ᴊᴏɪɴ ꜱᴇʀᴠᴇʀ", url: `https://t.me/${dev}` }],
+        ],
+      },
+    });
+    return;
+  }
+  
+    // Cek apakah create unli panel sedang dikunci
+if (isUnliLocked()) {
+    return bot.sendMessage(chatId, "🔒 *CREATE UNLI PANEL SEDANG DIKUNCI!*\n\nTidak dapat membuat UNLI PANEL baru saat ini.\n\nHubungi pemilik bot untuk membuka kunci.", { parse_mode: "Markdown" });
+}
+
+  const t = text.split(",");
+  if (t.length < 2) {
+    bot.sendMessage(chatId, "⚠️ Format: /unliv4 namapanel,idtele");
+    return;
+  }
+
+  const username = t[0].trim();
+  const u = parseInt(t[1].trim());
+  const name = username + "unli";
+  const egg = eggs;
+  const loc = settings.loc;
+  const memo = "0";
+  const cpu = "0";
+  const disk = "0";
+  const email = `${username}@gmail.com`;
+  const spc =
+    'if [[ -d .git ]] && [[ {{AUTO_UPDATE}} == "1" ]]; then git pull; fi; if [[ ! -z ${NODE_PACKAGES} ]]; then /usr/local/bin/npm install ${NODE_PACKAGES}; fi; if [[ ! -z ${UNNODE_PACKAGES} ]]; then /usr/local/bin/npm uninstall ${UNNODE_PACKAGES}; fi; if [ -f /home/container/package.json ]; then /usr/local/bin/npm install; fi; /usr/local/bin/${CMD_RUN}';
+  const password = username + Math.random().toString(36).slice(2, 5);
+    
+  let user;
+  let server;
+
+  try {
+    // CREATE USER
+    const response = await fetch(`${domainV4}/api/application/users`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pltaV4}`,
+      },
+      body: JSON.stringify({
+        email: email,
+        username: username,
+        first_name: username,
+        last_name: username,
+        language: "en",
+        password: password,
+      }),
+    });
+
+    const data = await response.json();
+    if (data.errors) {
+      if (
+        data.errors[0].meta.rule === "unique" &&
+        data.errors[0].meta.source_field === "email"
+      ) {
+        bot.sendMessage(chatId, "⚠️ Email & Username sudah ada di panel! Coba lagi.");
+      } else {
+        bot.sendMessage(chatId, `❌ Error: ${JSON.stringify(data.errors[0], null, 2)}`);
+      }
+      return;
+    }
+    user = data.attributes;
+
+    // CREATE SERVER
+    const response2 = await fetch(`${domainV4}/api/application/servers`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pltaV4}`,
+      },
+      body: JSON.stringify({
+        name: name,
+        description: "",
+        user: user.id,
+        egg: parseInt(egg),
+        docker_image: "ghcr.io/parkervcp/yolks:nodejs_20",
+        startup: spc,
+        environment: {
+          INST: "npm",
+          USER_UPLOAD: "0",
+          AUTO_UPDATE: "0",
+          CMD_RUN: "npm start",
+        },
+        limits: {
+          memory: memo,
+          swap: 0,
+          disk: disk,
+          io: 500,
+          cpu: cpu,
+        },
+        feature_limits: {
+          databases: 5,
+          backups: 5,
+          allocations: 1,
+        },
+        deploy: {
+          locations: [parseInt(loc)],
+          dedicated_ip: false,
+          port_range: [],
+        },
+      }),
+    });
+
+    const data2 = await response2.json();
+    if (data2.errors) {
+      bot.sendMessage(chatId, `❌ Error saat buat server: ${JSON.stringify(data2.errors[0], null, 2)}`);
+      return;
+    }
+    server = data2.attributes;
+
+  } catch (error) {
+    bot.sendMessage(chatId, `❌ Error: ${error.message}`);
+    return;
+  }
+
+  if (user && server) {
+    bot.sendMessage(
+      chatId,
+      `Type: Panel Unli V4
+📡 ID: ${user.id}
+👤 USERNAME: ${username}
+⚙️ MEMORY: ${server.limits.memory === 0 ? "Unlimited" : server.limits.memory} MB
+`
+    );
+
+function esc(text) {
+  return String(text).replace(/([_*\[\]()~`>#+\-=|{}.!])/g, '\\$1');
+}
+
+const safeName = esc(username);
+const safeEmail = esc(email);
+const safeId = esc(user.id);
+const safeUser = esc(user.username);
+const safePass = esc(password);
+const safeDomain = esc(domainV4);
+
+// copy
+const copyUser = `\`${safeUser}\``;
+const copyPass = `\`${safePass}\``;
+    
+// spoiler
+const spoilerDomain = `||${safeDomain}||`;
+
+bot.sendPhoto(u, panel, {
+  caption: `🔐 *Sukses Created Panel V4\\!*
+▸ Name: ${safeName}
+▸ Email: ${safeEmail}
+▸ ID: ${safeId}
+▸ RAM: Unlimited
+
+🌐 *Akun Panel V4*
+▸ Username: ${copyUser}
+▸ Password: ${copyPass}
+▸ Login: ${spoilerDomain}
+
+⚠️ *Rules Panel*
+▸ Sensor domain
+▸ Simpan data akun
+▸ Garansi 15 hari`,
+  parse_mode: "MarkdownV2",
+  reply_markup: {
+    inline_keyboard: [
+      [
+        { text: "🌐 Domain", url: domainV4 },
+        { text: "🔑 Salin Password", switch_inline_query_current_chat: password }
+      ],
+    ],
+  },
+});
+
+    bot.sendMessage(
+      chatId,
+      `✅ Berhasil kirim panel V4 ke @${msg.from.username}\n(ID: ${u})`
+    );
+  } else {
+    bot.sendMessage(chatId, `❌ Akun panel tidak ada! Laporkan ke @${dev}.`);
+  }
+});
+    
+  // unli v5
+bot.onText(/\/unliv5(?:\s+(.+))?/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const text = match[1];
+    
+  if (msg.chat.type !== "group" && msg.chat.type !== "supergroup") {
+  bot.sendMessage(msg.chat.id, "❌ ᴋʜᴜꜱᴜꜱ ɢʀᴜᴘ!");
+  return;
+  }
+
+  const waktu = checkCooldown(msg.from.id);
+    if (waktu > 0) return bot.sendMessage(chatId, `⏳ Tunggu ${waktu} detik sebelum bisa pakai command /unliv5 lagi!`, { reply_to_message_id: msg.message_id });
+    
+  const ressV5Users = JSON.parse(fs.readFileSync(RESSV5_FILE));
+  const isResellerV5 = ressV5Users.includes(String(msg.from.id));   
+      if (!isResellerV5) {
+    bot.sendMessage(chatId, "❌ ᴋʜᴜꜱᴜꜱ ʀᴇꜱᴇʟʟᴇʀ ᴠ5!", {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "ᴊᴏɪɴ ꜱᴇʀᴠᴇʀ", url: `https://t.me/${dev}` }],
+        ],
+      },
+    });
+    return;
+  }
+  
+    // Cek apakah create unli panel sedang dikunci
+if (isUnliLocked()) {
+    return bot.sendMessage(chatId, "🔒 *CREATE UNLI PANEL SEDANG DIKUNCI!*\n\nTidak dapat membuat UNLI PANEL baru saat ini.\n\nHubungi pemilik bot untuk membuka kunci.", { parse_mode: "Markdown" });
+}
+
+  const t = text.split(",");
+  if (t.length < 2) {
+    bot.sendMessage(chatId, "⚠️ Format: /unliv5 namapanel,idtele");
+    return;
+  }
+
+  const username = t[0].trim();
+  const u = parseInt(t[1].trim());
+  const name = username + "unli";
+  const egg = eggs;
+  const loc = settings.loc;
+  const memo = "0";
+  const cpu = "0";
+  const disk = "0";
+  const email = `${username}@gmail.com`;
+  const spc =
+    'if [[ -d .git ]] && [[ {{AUTO_UPDATE}} == "1" ]]; then git pull; fi; if [[ ! -z ${NODE_PACKAGES} ]]; then /usr/local/bin/npm install ${NODE_PACKAGES}; fi; if [[ ! -z ${UNNODE_PACKAGES} ]]; then /usr/local/bin/npm uninstall ${UNNODE_PACKAGES}; fi; if [ -f /home/container/package.json ]; then /usr/local/bin/npm install; fi; /usr/local/bin/${CMD_RUN}';
+  const password = username + Math.random().toString(36).slice(2, 5);
+    
+  let user;
+  let server;
+
+  try {
+    // CREATE USER
+    const response = await fetch(`${domainV5}/api/application/users`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pltaV5}`,
+      },
+      body: JSON.stringify({
+        email: email,
+        username: username,
+        first_name: username,
+        last_name: username,
+        language: "en",
+        password: password,
+      }),
+    });
+
+    const data = await response.json();
+    if (data.errors) {
+      if (
+        data.errors[0].meta.rule === "unique" &&
+        data.errors[0].meta.source_field === "email"
+      ) {
+        bot.sendMessage(chatId, "⚠️ Email & Username sudah ada di panel! Coba lagi.");
+      } else {
+        bot.sendMessage(chatId, `❌ Error: ${JSON.stringify(data.errors[0], null, 2)}`);
+      }
+      return;
+    }
+    user = data.attributes;
+
+    // CREATE SERVER
+    const response2 = await fetch(`${domainV5}/api/application/servers`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${pltaV5}`,
+      },
+      body: JSON.stringify({
+        name: name,
+        description: "",
+        user: user.id,
+        egg: parseInt(egg),
+        docker_image: "ghcr.io/parkervcp/yolks:nodejs_20",
+        startup: spc,
+        environment: {
+          INST: "npm",
+          USER_UPLOAD: "0",
+          AUTO_UPDATE: "0",
+          CMD_RUN: "npm start",
+        },
+        limits: {
+          memory: memo,
+          swap: 0,
+          disk: disk,
+          io: 500,
+          cpu: cpu,
+        },
+        feature_limits: {
+          databases: 5,
+          backups: 5,
+          allocations: 1,
+        },
+        deploy: {
+          locations: [parseInt(loc)],
+          dedicated_ip: false,
+          port_range: [],
+        },
+      }),
+    });
+
+    const data2 = await response2.json();
+    if (data2.errors) {
+      bot.sendMessage(chatId, `❌ Error saat buat server: ${JSON.stringify(data2.errors[0], null, 2)}`);
+      return;
+    }
+    server = data2.attributes;
+
+  } catch (error) {
+    bot.sendMessage(chatId, `❌ Error: ${error.message}`);
+    return;
+  }
+
+  if (user && server) {
+    bot.sendMessage(
+      chatId,
+      `Type: Panel Unli V5
+📡 ID: ${user.id}
+👤 USERNAME: ${username}
+⚙️ MEMORY: ${server.limits.memory === 0 ? "Unlimited" : server.limits.memory} MB
+`
+    );
+
+function esc(text) {
+  return String(text).replace(/([_*\[\]()~`>#+\-=|{}.!])/g, '\\$1');
+}
+
+const safeName = esc(username);
+const safeEmail = esc(email);
+const safeId = esc(user.id);
+const safeUser = esc(user.username);
+const safePass = esc(password);
+const safeDomain = esc(domainV5);
+
+// copy
+const copyUser = `\`${safeUser}\``;
+const copyPass = `\`${safePass}\``;
+    
+// spoiler
+const spoilerDomain = `||${safeDomain}||`;
+
+bot.sendPhoto(u, panel, {
+  caption: `🔐 *Sukses Created Panel V5\\!*
+▸ Name: ${safeName}
+▸ Email: ${safeEmail}
+▸ ID: ${safeId}
+▸ RAM: Unlimited
+
+🌐 *Akun Panel V5*
+▸ Username: ${copyUser}
+▸ Password: ${copyPass}
+▸ Login: ${spoilerDomain}
+
+⚠️ *Rules Panel*
+▸ Sensor domain
+▸ Simpan data akun
+▸ Garansi 15 hari`,
+  parse_mode: "MarkdownV2",
+  reply_markup: {
+    inline_keyboard: [
+      [
+        { text: "🌐 Domain", url: domainV5 },
+        { text: "🔑 Salin Password", switch_inline_query_current_chat: password }
+      ],
+    ],
+  },
+});
+
+    bot.sendMessage(
+      chatId,
+      `✅ Berhasil kirim panel V5 ke @${msg.from.username}\n(ID: ${u})`
+    );
+  } else {
+    bot.sendMessage(chatId, `❌ Akun panel tidak ada! Laporkan ke @${dev}.`);
+  }
+});
+    
+    // specs ram
+const specs = {
+  "1gbv2": { memo: 1024,  cpu: 30,  disk: 1024 },
+  "2gbv2": { memo: 2048,  cpu: 60,  disk: 2048 },
+  "3gbv2": { memo: 3072,  cpu: 90,  disk: 3072 },
+  "4gbv2": { memo: 4096,  cpu: 120, disk: 4096 },
+  "5gbv2": { memo: 5120,  cpu: 150, disk: 5120 },
+  "6gbv2": { memo: 6144,  cpu: 180, disk: 6144 },
+  "7gbv2": { memo: 7168,  cpu: 210, disk: 7168 },
+  "8gbv2": { memo: 8192,  cpu: 240, disk: 8192 },
+  "9gbv2": { memo: 9216,  cpu: 270, disk: 9216 },
+  "10gbv2":{ memo: 10240, cpu: 300, disk: 10240 },
+
+  "1gbv3": { memo: 1024,  cpu: 30,  disk: 1024 },
+  "2gbv3": { memo: 2048,  cpu: 60,  disk: 2048 },
+  "3gbv3": { memo: 3072,  cpu: 90,  disk: 3072 },
+  "4gbv3": { memo: 4096,  cpu: 120, disk: 4096 },
+  "5gbv3": { memo: 5120,  cpu: 150, disk: 5120 },
+  "6gbv3": { memo: 6144,  cpu: 180, disk: 6144 },
+  "7gbv3": { memo: 7168,  cpu: 210, disk: 7168 },
+  "8gbv3": { memo: 8192,  cpu: 240, disk: 8192 },
+  "9gbv3": { memo: 9216,  cpu: 270, disk: 9216 },
+  "10gbv3":{ memo: 10240, cpu: 300, disk: 10240 },
+
+  "1gbv4": { memo: 1024,  cpu: 30,  disk: 1024 },
+  "2gbv4": { memo: 2048,  cpu: 60,  disk: 2048 },
+  "3gbv4": { memo: 3072,  cpu: 90,  disk: 3072 },
+  "4gbv4": { memo: 4096,  cpu: 120, disk: 4096 },
+  "5gbv4": { memo: 5120,  cpu: 150, disk: 5120 },
+  "6gbv4": { memo: 6144,  cpu: 180, disk: 6144 },
+  "7gbv4": { memo: 7168,  cpu: 210, disk: 7168 },
+  "8gbv4": { memo: 8192,  cpu: 240, disk: 8192 },
+  "9gbv4": { memo: 9216,  cpu: 270, disk: 9216 },
+  "10gbv4":{ memo: 10240, cpu: 300, disk: 10240 },
+
+  "1gbv5": { memo: 1024,  cpu: 30,  disk: 1024 },
+  "2gbv5": { memo: 2048,  cpu: 60,  disk: 2048 },
+  "3gbv5": { memo: 3072,  cpu: 90,  disk: 3072 },
+  "4gbv5": { memo: 4096,  cpu: 120, disk: 4096 },
+  "5gbv5": { memo: 5120,  cpu: 150, disk: 5120 },
+  "6gbv5": { memo: 6144,  cpu: 180, disk: 6144 },
+  "7gbv5": { memo: 7168,  cpu: 210, disk: 7168 },
+  "8gbv5": { memo: 8192,  cpu: 240, disk: 8192 },
+  "9gbv5": { memo: 9216,  cpu: 270, disk: 9216 },
+  "10gbv5":{ memo: 10240, cpu: 300, disk: 10240 }
+};
+
+    // 1gb-10gb
+bot.onText(/^\/(1gb|2gb|3gb|4gb|5gb|6gb|7gb|8gb|9gb|10gb)(?:\s+(.+))?$/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const plan = match[1];
+  const text = match[2];
+
+  if (chatId.toString() !== settings.exGroupId) {
+  const ownerUsers = JSON.parse(fs.readFileSync(OWNER_FILE));
+  const isOwner = ownerUsers.includes(String(msg.from.id));
+
+  if (!isOwner) {
+    return bot.sendMessage(chatId, "ᴋʜᴜꜱᴜꜱ ᴅɪ ᴘᴀɴᴇʟ ᴘᴜʙʟɪᴄ", {
+      reply_to_message_id: msg.message_id,
+      reply_markup: {
+        inline_keyboard: [[{ text: "ʙᴜʏ ᴘᴜʙʟɪᴄ", url: `https://t.me/${dev}` }]],
+      },
+    });
+  }
+}
+
+  const ressUsers = JSON.parse(fs.readFileSync(RESS_FILE));
+  const isReseller = ressUsers.includes(String(msg.from.id));
+  if (!isReseller) {
+    return bot.sendMessage(chatId, "❌ ᴋʜᴜꜱᴜꜱ ʀᴇꜱᴇʟʟᴇʀ!", {
+      reply_markup: {
+        inline_keyboard: [[{ text: "ʟᴀᴘᴏʀᴀɴ", url: `https://t.me/${dev}` }]],
+      },
+    });
+  }
+
+  const waktu = checkCooldown(msg.from.id);
+  if (waktu > 0)
+    return bot.sendMessage(
+      chatId,
+      `⏳ Tunggu ${waktu} detik sebelum bisa pakai command /${plan} lagi!`,
+      { reply_to_message_id: msg.message_id }
+    );
+
+  if (!text) return bot.sendMessage(chatId, `Usage: /${plan} namapanel,idtele`);
+
+  const [username, u] = text.split(",");
+  if (!username || !u)
+    return bot.sendMessage(chatId, `Usage: /${plan} namapanel,idtele`);
+
+  const specs = {
+    "1gb": { memo: 1024, cpu: 60, disk: 2000 },
+    "2gb": { memo: 2048, cpu: 80, disk: 3000 },
+    "3gb": { memo: 3072, cpu: 100, disk: 4000 },
+    "4gb": { memo: 4096, cpu: 120, disk: 5000 },
+    "5gb": { memo: 5120, cpu: 140, disk: 6000 },
+    "6gb": { memo: 6144, cpu: 160, disk: 7000 },
+    "7gb": { memo: 7168, cpu: 180, disk: 8000 },
+    "8gb": { memo: 8192, cpu: 200, disk: 9000 },
+    "9gb": { memo: 9216, cpu: 220, disk: 10000 },
+    "10gb": { memo: 10240, cpu: 240, disk: 11000 },
+  }[plan];
+
+  const { memo, cpu, disk } = specs;
+  const name = username + plan;
+  const email = `${username}@gmail.com`;
+  const password = username + Math.random().toString(36).slice(2, 5);
+  const spc =
+    'if [[ -d .git ]] && [[ {{AUTO_UPDATE}} == "1" ]]; then git pull; fi; if [[ ! -z ${NODE_PACKAGES} ]]; then /usr/local/bin/npm install ${NODE_PACKAGES}; fi; if [[ ! -z ${UNNODE_PACKAGES} ]]; then /usr/local/bin/npm uninstall ${UNNODE_PACKAGES}; fi; if [ -f /home/container/package.json ]; then /usr/local/bin/npm install; fi; /usr/local/bin/${CMD_RUN}';
+
+  let user, server;
+  try {
+    // 🧩 Pastikan selalu akses API dengan /api/
+    const res1 = await fetch(`${domain}/api/application/users`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${plta}`,
+      },
+      body: JSON.stringify({
+        email,
+        username,
+        first_name: username,
+        last_name: username,
+        language: "en",
+        password,
+      }),
+    });
+
+    // 🧠 Tambah validasi jika bukan JSON (biasanya karena HTML error page)
+    const textRes1 = await res1.text();
+    if (!textRes1.startsWith("{")) {
+      return bot.sendMessage(
+        chatId,
+        `⚠️ Terjadi kesalahan:\nRespon bukan JSON dari ${domain}:\n${textRes1.slice(
+          0,
+          300
+        )}...`
+      );
+    }
+
+    const data1 = JSON.parse(textRes1);
+    if (data1.errors)
+      return bot.sendMessage(chatId, `Error user: ${JSON.stringify(data1.errors[0])}`);
+    user = data1.attributes;
+
+    const res2 = await fetch(`${domain}/api/application/servers`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${plta}`,
+      },
+      body: JSON.stringify({
+        name,
+        user: user.id,
+        egg: parseInt(eggs),
+        docker_image: "ghcr.io/parkervcp/yolks:nodejs_18",
+        startup: spc,
+        environment: {
+          INST: "npm",
+          USER_UPLOAD: "0",
+          AUTO_UPDATE: "0",
+          CMD_RUN: "npm start",
+        },
+        limits: { memory: memo, swap: 0, disk, io: 500, cpu },
+        feature_limits: { databases: 5, backups: 5, allocations: 1 },
+        deploy: {
+          locations: [parseInt(settings.loc)],
+          dedicated_ip: false,
+          port_range: [],
+        },
+      }),
+    });
+
+    const textRes2 = await res2.text();
+    if (!textRes2.startsWith("{")) {
+      return bot.sendMessage(
+        chatId,
+        `⚠️ Terjadi kesalahan:\nRespon bukan JSON dari ${domain}:\n${textRes2.slice(
+          0,
+          300
+        )}...`
+      );
+    }
+
+    const data2 = JSON.parse(textRes2);
+    if (data2.errors)
+      return bot.sendMessage(chatId, `Error server: ${JSON.stringify(data2.errors[0])}`);
+    server = data2.attributes;
+  } catch (e) {
+    return bot.sendMessage(chatId, `Error: ${e.message}`);
+  }
+
+  if (!user || !server)
+    return bot.sendMessage(chatId, "⚠️ Gagal membuat data panel.");
+
+  bot.sendMessage(
+    chatId,
+    `*- BERIKUT DATA PANEL ${plan} -*\n` +
+      `NAMA: ${username}\n` +
+      `EMAIL: ${email}\n` +
+      `ID: ${user.id}\n` +
+      `MEMORY: ${server.limits.memory} MB\n` +
+      `DISK: ${server.limits.disk} MB\n` +
+      `CPU: ${server.limits.cpu}%`,
+    { parse_mode: "Markdown", reply_to_message_id: msg.message_id }
+  );
+
+  bot.sendPhoto(u, panel, {
+    caption:
+      `*🔐 Sukses Created Panel ${plan}!*\n` +
+      `▸ Name: ${username}\n` +
+      `▸ Email: ${email}\n` +
+      `▸ ID: ${user.id}\n` +
+      `▸ RAM: ${plan}\n\n` +
+      `*🌐 Akun Panel*\n` +
+      `▸ Username: \`${user.username}\`\n` +
+      `▸ Password: \`${password}\`\n\n` +
+      `*⚠️ Rules Panel*\n` +
+      `▸ Sensor domain\n` +
+      `▸ Simpan data akun\n` +
+      `▸ Garansi 15 hari`,
+    parse_mode: "Markdown",
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: "🌐 Domain", url: domain },
+          { text: "🔑 Salin Password", switch_inline_query_current_chat: password },
+        ],
+      ],
+    },
+  });
+});
+    
+    // 1gb-10gb v2-v5
+bot.onText(/\/(\d+gbv[2-5])(?:\s+(.+))?/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const plan = match[1];
+  const text = match[2];
+
+  if (msg.chat.type !== "group" && msg.chat.type !== "supergroup") {
+    bot.sendMessage(msg.chat.id, "❌ ᴋʜᴜꜱᴜꜱ ɢʀᴜᴘ!");
+    return;
+  }
+    
+  const waktu = checkCooldown(msg.from.id);
+    if (waktu > 0) return bot.sendMessage(chatId, `⏳ Tunggu ${waktu} detik sebelum bisa pakai command /${plan} lagi!`, { reply_to_message_id: msg.message_id });
+
+  const verMatch = plan.match(/v([2-5])$/i);
+  const version = verMatch ? verMatch[1] : "2";
+
+  const domainMap = {
+    "2": domainV2,
+    "3": domainV3,
+    "4": domainV4,
+    "5": domainV5
+  };
+  const pltaMap = {
+    "2": pltaV2,
+    "3": pltaV3,
+    "4": pltaV4,
+    "5": pltaV5
+  };
+  const specsMap = {
+    "2": specs,
+    "3": specs,
+    "4": specs,
+    "5": specs
+  };
+  const ressFileMap = {
+    "2": RESSV2_FILE,
+    "3": RESSV3_FILE,
+    "4": RESSV4_FILE,
+    "5": RESSV5_FILE
+  };
+
+  const domain = domainMap[version];
+  const plta = pltaMap[version];
+  const specsUsed = specsMap[version];
+  const RESS_FILE = ressFileMap[version];
+
+  if (!domain || !plta || !specsUsed || !RESS_FILE) {
+    return bot.sendMessage(chatId, `❌ ᴀᴋᴜɴ ᴀᴅᴘ V${version} ᴍᴀꜱɪʜ ᴋᴏꜱᴏɴɢ!`);
+  }
+
+  const ressUsers = JSON.parse(fs.readFileSync(RESS_FILE));
+  const isReseller = ressUsers.includes(String(msg.from.id));
+
+  if (!isReseller) {
+    bot.sendMessage(chatId, `❌ ᴋʜᴜꜱᴜꜱ ʀᴇꜱᴇʟʟᴇʀ ᴠ${version}!`, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "ᴊᴏɪɴ ꜱᴇʀᴠᴇʀ", url: `https://t.me/${dev}` }],
+        ],
+      },
+    });
+    return;
+  }
+
+  const [username,u] = (text||"").split(",");
+  if (!username || !u) return bot.sendMessage(chatId, `⚠️ Usage: /${plan} namapanel,idtele`);
+
+  const { memo,cpu,disk } = specsUsed[plan] || {};
+  if (typeof memo === "undefined") return bot.sendMessage(chatId, `⚠️ Spesifikasi untuk ${plan} V${version} tidak ditemukan di specs.`);
+
+  const name = username+plan;
+  const email = `${username}@gmail.com`;
+  const password = username+Math.random().toString(36).slice(2,5);
+  const spc = 'if [[ -d .git ]] && [[ {{AUTO_UPDATE}} == "1" ]]; then git pull; fi; if [[ ! -z ${NODE_PACKAGES} ]]; then /usr/local/bin/npm install ${NODE_PACKAGES}; fi; if [[ ! -z ${UNNODE_PACKAGES} ]]; then /usr/local/bin/npm uninstall ${UNNODE_PACKAGES}; fi; if [ -f /home/container/package.json ]; then /usr/local/bin/npm install; fi; /usr/local/bin/${CMD_RUN}';
+
+  let user,server;
+  try {
+    const res1 = await fetch(`${domain}/api/application/users`, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json", Authorization:`Bearer ${plta}` },
+      body:JSON.stringify({ email, username, first_name:username, last_name:username, language:"en", password })
+    });
+    const data1 = await res1.json();
+    if (data1.errors) return bot.sendMessage(chatId, `Error user: ${JSON.stringify(data1.errors[0])}`);
+    user = data1.attributes;
+
+    const res2 = await fetch(`${domain}/api/application/servers`, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json", Authorization:`Bearer ${plta}` },
+      body:JSON.stringify({
+        name, user:user.id, egg:parseInt(eggs),
+        docker_image:"ghcr.io/parkervcp/yolks:nodejs_18", startup:spc,
+        environment:{ INST:"npm",USER_UPLOAD:"0",AUTO_UPDATE:"0",CMD_RUN:"npm start" },
+        limits:{ memory:memo,swap:0,disk,io:500,cpu },
+        feature_limits:{ databases:5,backups:5,allocations:1 },
+        deploy:{ locations:[parseInt(settings.loc)],dedicated_ip:false,port_range:[] }
+      })
+    });
+    const data2 = await res2.json();
+    server = data2.attributes;
+  } catch(e) {
+    return bot.sendMessage(chatId, `Error: ${e.message}`);
+  }
+
+  if (!user || !server) return bot.sendMessage(chatId,"Gagal membuat data panel.");
+
+  bot.sendMessage(chatId, `*- BERIKUT DATA PANEL ${plan} -*
+NAMA: ${username}
+EMAIL: ${email}
+ID: ${user.id}
+MEMORY: ${server.limits.memory} MB
+DISK: ${server.limits.disk} MB
+CPU: ${server.limits.cpu}%`, { parse_mode: "Markdown", reply_to_message_id: msg.message_id });
+
+  bot.sendPhoto(u, panel, {
+    caption: `*🔐 Sukses Created Panel ${plan} V${version}!*
+▸ Name: ${username}
+▸ Email: ${email}
+▸ ID: ${user.id}
+▸ RAM: ${plan}
+
+*🌐 Akun Panel V${version}*
+▸ Username: \`${user.username}\`
+▸ Password: \`${password}\`
+
+*⚠️ Rules Panel*
+▸ Sensor domain
+▸ Simpan data akun
+▸ Garansi 15 hari
+`,
+    parse_mode: "Markdown",
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: "🌐 Domain", url: domain },
+          { text: "🔑 Salin Password", switch_inline_query_current_chat: password }
+        ],
+      ],
+    },
+  });
+});
+    
+// delsrv
+bot.onText(/\/delsrv (.+)/, async (msg, match) => {
+  notifyOwner('delsrv', msg);
+  const chatId = msg.chat.id;
+    
+  if (chatId.toString() !== settings.exGroupId) {
+  const ownerUsers = JSON.parse(fs.readFileSync(OWNER_FILE));
+  const isOwner = ownerUsers.includes(String(msg.from.id));
+
+  if (!isOwner) {
+    return bot.sendMessage(chatId, "ᴋʜᴜꜱᴜꜱ ᴅɪ ᴘᴀɴᴇʟ ᴘᴜʙʟɪᴄ", {
+      reply_to_message_id: msg.message_id,
+      reply_markup: {
+        inline_keyboard: [[{ text: "ʙᴜʏ ᴘᴜʙʟɪᴄ", url: `https://t.me/${dev}` }]],
+      },
+    });
+  }
+}
+    
+  const srv = match[1].trim();
+    
+  const ownerUsers = JSON.parse(fs.readFileSync(OWNER_FILE));
+  const isOwner = ownerUsers.includes(String(msg.from.id));
+  if (!isOwner) {
+    bot.sendMessage(chatId, "❌ ᴋʜᴜsᴜs ᴏᴡɴᴇʀ", {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "ʟᴀᴘᴏʀᴀɴ", url: `https://t.me/${dev}`}],
+        ],
+      },
+    });
+    return;
+  }
+
+  if (!srv) {
+    bot.sendMessage(
+      chatId,
+      "Masukkan ID server yang ingin dihapus, contoh: /delsrv 1234"
+    );
+    return;
+  }
+
+  try {
+    let f = await fetch(domain + "/api/application/servers/" + srv, {
+      method: "DELETE",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${plta}`,
+      },
+    });
+
+    let res = f.ok ? { errors: null } : await f.json();
+
+    if (res.errors) {
+      bot.sendMessage(chatId, "❌ sᴇʀᴠᴇʀ ᴛɪᴅᴀᴋ ᴀᴅᴀ");
+    } else {
+      bot.sendMessage(chatId, `✅ ꜱᴜᴋꜱᴇꜱ ᴅᴇʟᴇᴛᴇ ꜱᴇʀᴠᴇʀ ${srv}`, { parse_mode: "MarkDown",
+    reply_to_message_id: msg.message_id });
+    }
+  } catch (error) {
+    console.error(error);
+    bot.sendMessage(chatId, "Terjadi kesalahan saat menghapus server.");
+  }
+});
+
+// deladmin
+bot.onText(/^\/deladmin(?:\s+(.+))?/, async (msg, match) => {
+  notifyOwner('deladmin', msg);
+  const chatId = msg.chat.id;
+  const userId = match[1];
+
+  if (chatId.toString() !== settings.exGroupId) {
+  const ownerUsers = JSON.parse(fs.readFileSync(OWNER_FILE));
+  const isOwner = ownerUsers.includes(String(msg.from.id));
+
+  if (!isOwner) {
+    return bot.sendMessage(chatId, "ᴋʜᴜꜱᴜꜱ ᴅɪ ᴘᴀɴᴇʟ ᴘᴜʙʟɪᴄ", {
+      reply_to_message_id: msg.message_id,
+      reply_markup: {
+        inline_keyboard: [[{ text: "ʙᴜʏ ᴘᴜʙʟɪᴄ", url: `https://t.me/${dev}` }]],
+      },
+    });
+  }
+}
+
+  const ownerUsers = JSON.parse(fs.readFileSync(OWNER_FILE));
+  const isOwner = ownerUsers.includes(String(msg.from.id));
+  if (!isOwner) {
+    return bot.sendMessage(chatId, "❌ ᴋʜᴜsᴜs ᴏᴡɴᴇʀ", {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "ʟᴀᴘᴏʀᴀɴ", url: `https://t.me/${dev}`}],
+        ],
+      },
+    });
+  }
+
+  if (!userId) {
+    return bot.sendMessage(
+      chatId,
+      "❌ Format salah!\nContoh: /deladmin ID",
+      { parse_mode: "Markdown" }
+    );
+  }
+
+  try {
+    let f = await fetch(domain + "/api/application/users/" + userId, {
+      method: "DELETE",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${plta}`,
+      },
+    });
+
+    let res = f.ok ? { errors: null } : await f.json();
+
+    if (res.errors) {
+      bot.sendMessage(chatId, "❌ ᴜsᴇʀ ᴛɪᴅᴀᴋ ᴀᴅᴀ");
+    } else {
+      bot.sendMessage(chatId, `✅ ꜱᴜᴋꜱᴇꜱ ᴅᴇʟᴇᴛᴇ ᴀᴅᴍɪɴ ${userId}`, {
+        parse_mode: "Markdown",
+        reply_to_message_id: msg.message_id,
+      });
+    }
+  } catch (error) {
+    console.error(error);
+    bot.sendMessage(chatId, "Terjadi kesalahan saat menghapus admin.");
+  }
+});
+
+// listsrvoff
+bot.onText(/\/listsrvoff/, async (msg) => {
+  const chatId = msg.chat.id;
+    
+  if (chatId.toString() !== settings.exGroupId) {
+  const ownerUsers = JSON.parse(fs.readFileSync(OWNER_FILE));
+  const isOwner = ownerUsers.includes(String(msg.from.id));
+
+  if (!isOwner) {
+    return bot.sendMessage(chatId, "ᴋʜᴜꜱᴜꜱ ᴅɪ ᴘᴀɴᴇʟ ᴘᴜʙʟɪᴄ", {
+      reply_to_message_id: msg.message_id,
+      reply_markup: {
+        inline_keyboard: [[{ text: "ʙᴜʏ ᴘᴜʙʟɪᴄ", url: `https://t.me/${dev}` }]],
+      },
+    });
+  }
+}
+
+  try {
+    const ownerUsers = JSON.parse(fs.readFileSync(OWNER_FILE));
+    const isOwner = ownerUsers.includes(String(msg.from.id));
+    if (!isOwner) {
+      return bot.sendMessage(chatId, "❌ ᴋʜᴜsᴜs ᴏᴡɴᴇʀ", {
+        reply_markup: {
+          inline_keyboard: [[{ text: "ʟᴀᴘᴏʀᴀɴ", url: `https://t.me/${dev}`}]],
+        },
+      });
+    }
+
+    let offlineServers = [];
+    let page = 1;
+    let totalPages = 1;
+
+    // Ambil semua halaman server
+    do {
+      let f = await fetch(`${domain}/api/application/servers?page=${page}`, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${plta}`,
+        },
+      });
+
+      let res = await f.json();
+      let servers = res.data;
+      totalPages = res.meta.pagination.total_pages;
+
+      for (let server of servers) {
+        let s = server.attributes;
+        try {
+          let f3 = await fetch(
+            `${domain}/api/client/servers/${s.uuid.split("-")[0]}/resources`,
+            {
+              method: "GET",
+              headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${pltc}`,
+              },
+            }
+          );
+
+          let data = await f3.json();
+          let status = data.attributes ? data.attributes.current_state : s.status;
+
+          if (status === "offline") {
+            offlineServers.push(
+              `ID Server: ${s.id}\nNama: ${s.name}\nStatus: ${status}\n`
+            );
+          }
+        } catch (err) {
+          console.error(`Gagal ambil data server ${s.id}`, err);
+        }
+      }
+
+      page++;
+    } while (page <= totalPages);
+
+    if (offlineServers.length === 0) {
+      return bot.sendMessage(chatId, "✅ Semua server dalam keadaan online.");
+    }
+
+    // Gabung semua offline server ke string
+    let messageText = `📋 ᴅᴀғᴛᴀʀ sᴇʀᴠᴇʀ ᴏғғʟɪɴᴇ (${offlineServers.length}):\n\n${offlineServers.join("\n")}`;
+
+    // Handle limit karakter Telegram (4096)
+    while (messageText.length > 0) {
+      let chunk = messageText.slice(0, 4000); 
+      messageText = messageText.slice(4000);
+      await bot.sendMessage(chatId, chunk);
+    }
+
+  } catch (error) {
+    console.error(error);
+    bot.sendMessage(chatId, "⚠️ Terjadi kesalahan saat memproses /listsrvoff.");
+  }
+});
+
+// delallusr offline
+bot.onText(/\/delusroff(?:\s+(\d+))?/, async (msg, match) => {
+  notifyOwner("delusroff", msg);
+  const chatId = msg.chat.id;
+  const exceptId = match[1]; // ID pengecualian
+
+  if (chatId.toString() !== settings.exGroupId) {
+  const ownerUsers = JSON.parse(fs.readFileSync(OWNER_FILE));
+  const isOwner = ownerUsers.includes(String(msg.from.id));
+
+  if (!isOwner) {
+    return bot.sendMessage(chatId, "ᴋʜᴜꜱᴜꜱ ᴅɪ ᴘᴀɴᴇʟ ᴘᴜʙʟɪᴄ", {
+      reply_to_message_id: msg.message_id,
+      reply_markup: {
+        inline_keyboard: [[{ text: "ʙᴜʏ ᴘᴜʙʟɪᴄ", url: `https://t.me/${dev}` }]],
+      },
+    });
+  }
+}
+
+  bot.sendMessage(chatId, "⏳");
+
+  try {
+    const ownerUsers = JSON.parse(fs.readFileSync(OWNER_FILE));
+    if (!ownerUsers.includes(String(msg.from.id))) {
+      return bot.sendMessage(chatId, "❌ ᴋʜᴜsᴜs ᴏᴡɴᴇʀ", {
+        reply_markup: {
+          inline_keyboard: [[{ text: "ʟᴀᴘᴏʀᴀɴ", url: `https://t.me/${dev}` }]],
+        },
+      });
+    }
+
+    let page = 1;
+    let totalPages = 1;
+    let usersToDelete = [];
+
+    // loop sampai semua page habis
+    do {
+      const f = await fetch(`${domainV2}/api/application/users?page=${page}&per_page=50`, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${pltaV2}`,
+        },
+      });
+
+      const res = await f.json();
+      if (!res.data) break;
+
+      const users = res.data;
+      totalPages = res.meta.pagination.total_pages;
+
+      for (let u of users) {
+        const user = u.attributes;
+
+        // skip kalau pengecualian
+        if (exceptId && String(user.id) === exceptId) continue;
+
+        if (user.root_admin) {
+          try {
+            // cek server user
+            const f2 = await fetch(`${domainV2}/api/application/users/${user.id}?include=servers`, {
+              method: "GET",
+              headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${pltaV2}`,
+              },
+            });
+
+            const detail = await f2.json();
+            const servers = detail.attributes.relationships.servers.data;
+
+            if (!servers || servers.length === 0) {
+              usersToDelete.push({ id: user.id, username: user.username });
+            }
+          } catch (err) {
+            console.error(`Gagal cek server user ${user.id}`, err);
+          }
+        }
+      }
+
+      page++;
+    } while (page <= totalPages);
+
+    if (usersToDelete.length === 0) {
+      return bot.sendMessage(chatId, "✅ Tidak ada user admin tanpa server untuk dihapus.");
+    }
+
+    let success = [];
+    let failed = [];
+
+    for (let usr of usersToDelete) {
+      try {
+        const del = await fetch(`${domainV2}/api/application/users/${usr.id}`, {
+          method: "DELETE",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${pltaV2}`,
+          },
+        });
+
+        if (del.status === 204) {
+          success.push(`✅ ${usr.username} (ID: ${usr.id})`);
+        } else {
+          failed.push(`❌ ${usr.username} (ID: ${usr.id})`);
+        }
+      } catch (err) {
+        console.error(`Gagal hapus user ${usr.id}`, err);
+        failed.push(`❌ ${usr.username} (ID: ${usr.id})`);
+      }
+    }
+
+    let report = `🗑️ Sukses menghapus User yang Offline:\n\n` +
+      `ʙᴇʀʜᴀsɪʟ ᴅɪʜᴀᴘᴜs: ${success.length}\n` +
+      `ɢᴀɢᴀʟ ᴅɪʜᴀᴘᴜs: ${failed.length}\n\n`;
+
+    if (success.length) report += `✅ ʙᴇʀʜᴀsɪʟ:\n${success.join("\n")}\n\n`;
+    if (failed.length) report += `❌ ɢᴀɢᴀʟ:\n${failed.join("\n")}`;
+
+    while (report.length > 0) {
+      const chunk = report.slice(0, 4000);
+      report = report.slice(4000);
+      await bot.sendMessage(chatId, chunk);
+    }
+
+  } catch (error) {
+    console.error(error);
+    bot.sendMessage(chatId, "⚠️ Terjadi kesalahan saat memproses /delusroff.");
+  }
+});
+
+// delallsrv offline
+bot.onText(/\/delsrvoff/, async (msg) => {
+  notifyOwner('delsrvoff', msg);
+  const chatId = msg.chat.id;
+
+  if (chatId.toString() !== settings.exGroupId) {
+  const ownerUsers = JSON.parse(fs.readFileSync(OWNER_FILE));
+  const isOwner = ownerUsers.includes(String(msg.from.id));
+
+  if (!isOwner) {
+    return bot.sendMessage(chatId, "ᴋʜᴜꜱᴜꜱ ᴅɪ ᴘᴀɴᴇʟ ᴘᴜʙʟɪᴄ", {
+      reply_to_message_id: msg.message_id,
+      reply_markup: {
+        inline_keyboard: [[{ text: "ʙᴜʏ ᴘᴜʙʟɪᴄ", url: `https://t.me/${dev}` }]],
+      },
+    });
+  }
+}
+    
+  bot.sendMessage(chatId, "⏳");
+
+  try {
+    const ownerUsers = JSON.parse(fs.readFileSync(OWNER_FILE));
+    const isOwner = ownerUsers.includes(String(msg.from.id));
+    if (!isOwner) {
+      return bot.sendMessage(chatId, "❌ ᴋʜᴜsᴜs ᴏᴡɴᴇʀ", {
+        reply_markup: {
+          inline_keyboard: [[{ text: "ʟᴀᴘᴏʀᴀɴ", url: `https://t.me/${dev}` }]],
+        },
+      });
+    }
+
+    let page = 1;
+    let totalPages = 1;
+    let offlineServers = [];
+
+    // Ambil semua server dari semua page
+    do {
+      let f = await fetch(`${domain}/api/application/servers?page=${page}`, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${plta}`,
+        },
+      });
+
+      let res = await f.json();
+      let servers = res.data;
+      totalPages = res.meta.pagination.total_pages;
+
+      for (let server of servers) {
+        let s = server.attributes;
+        try {
+          let f3 = await fetch(
+            `${domain}/api/client/servers/${s.uuid.split("-")[0]}/resources`,
+            {
+              method: "GET",
+              headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${pltc}`,
+              },
+            }
+          );
+
+          let data = await f3.json();
+          let status = data.attributes ? data.attributes.current_state : s.status;
+
+          if (status === "offline") {
+            offlineServers.push({ id: s.id, name: s.name });
+          }
+        } catch (err) {
+          console.error(`Gagal ambil data server ${s.id}`, err);
+        }
+      }
+
+      page++;
+    } while (page <= totalPages);
+
+    if (offlineServers.length === 0) {
+      return bot.sendMessage(chatId, "✅ Tidak ada server offline untuk dihapus.");
+    }
+
+    let success = [];
+    let failed = [];
+
+    for (let srv of offlineServers) {
+      try {
+        let del = await fetch(`${domain}/api/application/servers/${srv.id}`, {
+          method: "DELETE",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${plta}`,
+          },
+        });
+
+        if (del.status === 204) {
+          success.push(`✅ ${srv.name} (ID: ${srv.id})`);
+        } else {
+          failed.push(`❌ ${srv.name} (ID: ${srv.id})`);
+        }
+      } catch (err) {
+        console.error(`Gagal hapus server ${srv.id}`, err);
+        failed.push(`❌ ${srv.name} (ID: ${srv.id})`);
+      }
+    }
+
+    let report = `🗑️ Sukses menghapus Server yang Offline:\n\n` +
+      `ʙᴇʀʜᴀsɪʟ ᴅɪʜᴀᴘᴜs: ${success.length}\n` +
+      `ɢᴀɢᴀʟ ᴅɪʜᴀᴘᴜs: ${failed.length}\n\n`;
+
+    if (success.length) {
+      report += `✅ ʙᴇʀʜᴀsɪʟ:\n${success.join("\n")}\n\n`;
+    }
+    if (failed.length) {
+      report += `❌ ɢᴀɢᴀʟ:\n${failed.join("\n")}`;
+    }
+
+    // Handle limit karakter telegram
+    while (report.length > 0) {
+      let chunk = report.slice(0, 4000);
+      report = report.slice(4000);
+      await bot.sendMessage(chatId, chunk);
+    }
+
+  } catch (error) {
+    console.error(error);
+    bot.sendMessage(chatId, "⚠️ Terjadi kesalahan saat memproses /delsrvoff.");
+  }
+});
+    
+// total server
+bot.onText(/\/totalserver/, async (msg) => {
+  const chatId = msg.chat.id;
+
+  if (chatId.toString() !== settings.exGroupId) {
+  const ownerUsers = JSON.parse(fs.readFileSync(OWNER_FILE));
+  const isOwner = ownerUsers.includes(String(msg.from.id));
+
+  if (!isOwner) {
+    return bot.sendMessage(chatId, "ᴋʜᴜꜱᴜꜱ ᴅɪ ᴘᴀɴᴇʟ ᴘᴜʙʟɪᴄ", {
+      reply_to_message_id: msg.message_id,
+      reply_markup: {
+        inline_keyboard: [[{ text: "ʙᴜʏ ᴘᴜʙʟɪᴄ", url: `https://t.me/${dev}` }]],
+      },
+    });
+  }
+}
+
+  try {
+
+    let page = 1;
+    let totalPages = 1;
+    let totalServers = 0;
+
+    // Loop semua halaman server
+    do {
+      let f = await fetch(`${domain}/api/application/servers?page=${page}`, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${plta}`,
+        },
+      });
+
+      let res = await f.json();
+      totalPages = res.meta.pagination.total_pages;
+
+      if (res.data && res.data.length > 0) {
+        totalServers += res.data.length;
+      }
+
+      page++;
+    } while (page <= totalPages);
+
+    return bot.sendMessage(
+      chatId,
+      `📊 Total server: *${totalServers}*`,
+      { parse_mode: "Markdown",
+    reply_to_message_id: msg.message_id }
+    );
+
+  } catch (error) {
+    console.error(error);
+    bot.sendMessage(chatId, "⚠️ Terjadi kesalahan saat memproses /totalserver.");
+  }
+});
+
+// listadmin
+const adminPages = new Map();
+
+bot.onText(/\/listadmin/, async (msg) => {
+  const chatId = msg.chat.id;
+
+  if (chatId.toString() !== settings.exGroupId) {
+  const ownerUsers = JSON.parse(fs.readFileSync(OWNER_FILE));
+  const isOwner = ownerUsers.includes(String(msg.from.id));
+
+  if (!isOwner) {
+    return bot.sendMessage(chatId, "ᴋʜᴜꜱᴜꜱ ᴅɪ ᴘᴀɴᴇʟ ᴘᴜʙʟɪᴄ", {
+      reply_to_message_id: msg.message_id,
+      reply_markup: {
+        inline_keyboard: [[{ text: "ʙᴜʏ ᴘᴜʙʟɪᴄ", url: `https://t.me/${dev}` }]],
+      },
+    });
+  }
+}
+
+  const wait = await bot.sendMessage(chatId, "⏳");
+
+  try {
+    let page = 1;
+    let admins = [];
+    let totalPages = 1;
+
+    // ambil semua admin
+    do {
+      const res = await fetch(`${domain}/api/application/users?page=${page}`, {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${plta}`,
+        },
+      });
+      const json = await res.json();
+      if (!json.data) break;
+
+      totalPages = json.meta.pagination.total_pages;
+      const users = json.data;
+      for (let user of users) {
+        const u = user.attributes;
+        if (u.root_admin) {
+          admins.push({
+            id: u.id,
+            username: u.username,
+            email: u.email,
+            status: u.attributes?.user?.server_limit === null ? "Inactive" : "Active",
+          });
+        }
+      }
+      page++;
+    } while (page <= totalPages);
+
+    if (admins.length === 0) {
+      return bot.editMessageText("⚠️ Tidak ada admin ditemukan.", {
+        chat_id: chatId,
+        message_id: wait.message_id,
+      });
+    }
+
+    // ambil total server (inti)
+    let totalServer = 0;
+    try {
+      const r = await fetch(`${domain}/api/application/servers`, {
+        headers: { Authorization: `Bearer ${plta}` },
+      });
+      const j = await r.json();
+      totalServer = j.meta.pagination.total;
+    } catch {
+      totalServer = "Unknown";
+    }
+
+    const pageSize = 10;
+    const totalPage = Math.ceil(admins.length / pageSize);
+    adminPages.set(chatId, { admins, totalPage, totalServer });
+
+    const getPageText = (p) => {
+      const { admins, totalPage, totalServer } = adminPages.get(chatId);
+      const start = (p - 1) * pageSize;
+      const end = Math.min(start + pageSize, admins.length);
+      let text = `📊 Total Admin: ${admins.length}\n🖥️ Total Server: ${totalServer}\n\n`;
+
+      for (let i = start; i < end; i++) {
+        const a = admins[i];
+        text += `ID: ${a.id}\nUsername: ${a.username}\nEmail: ${a.email}\nStatus: ${a.status}\n\n`;
+      }
+      return text.trim();
+    };
+
+    const text = getPageText(1);
+    await bot.editMessageText(text, {
+      chat_id: chatId,
+      message_id: wait.message_id,
+      reply_markup: {
+        inline_keyboard: [[
+          { text: "(1/" + totalPage + ")", callback_data: "none" },
+          { text: "➡️", callback_data: "adm_next_1" }
+        ]],
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    bot.editMessageText("⚠️ Terjadi kesalahan saat memuat daftar admin.", {
+      chat_id: chatId,
+      message_id: wait.message_id,
+    });
+  }
+});
+
+bot.on("callback_query", async (q) => {
+  const chatId = q.message.chat.id;
+  const data = q.data;
+
+  if (!data.startsWith("adm_")) return;
+
+  try {
+    const saved = adminPages.get(chatId);
+    if (!saved) return;
+
+    let currentPage = parseInt(data.split("_")[2]);
+    let newPage = data.includes("next") ? currentPage + 1 : currentPage - 1;
+    if (newPage < 1 || newPage > saved.totalPage) return;
+
+    const getPageText = (p) => {
+      const { admins, totalPage, totalServer } = saved;
+      const pageSize = 10;
+      const start = (p - 1) * pageSize;
+      const end = Math.min(start + pageSize, admins.length);
+      let text = `📊 Total Admin: ${admins.length}\n🖥️ Total Server: ${totalServer}\n\n`;
+
+      for (let i = start; i < end; i++) {
+        const a = admins[i];
+        text += `ID: ${a.id}\nUsername: ${a.username}\nEmail: ${a.email}\nStatus: ${a.status}\n\n`;
+      }
+      return text.trim();
+    };
+
+    const newText = getPageText(newPage);
+    const { totalPage } = saved;
+    const pageInfo = { text: `(${newPage}/${totalPage})`, callback_data: "none" };
+    const keyboard = [];
+
+    if (newPage > 1 && newPage < totalPage) {
+      keyboard.push(
+        { text: "⬅️", callback_data: `adm_prev_${newPage}` },
+        pageInfo,
+        { text: "➡️", callback_data: `adm_next_${newPage}` }
+      );
+    } else if (newPage > 1) {
+      keyboard.push(
+        { text: "⬅️", callback_data: `adm_prev_${newPage}` },
+        pageInfo
+      );
+    } else if (newPage < totalPage) {
+      keyboard.push(
+        pageInfo,
+        { text: "➡️", callback_data: `adm_next_${newPage}` }
+      );
+    } else {
+      keyboard.push(pageInfo);
+    }
+
+    await bot.editMessageText(newText, {
+      chat_id: chatId,
+      message_id: q.message.message_id,
+      reply_markup: { inline_keyboard: [keyboard] },
+    });
+
+    await bot.answerCallbackQuery(q.id);
+  } catch (err) {
+    console.error("Callback error:", err.message);
+  }
+});
+    
+// listsrv
+const serverPages = new Map();
+
+bot.onText(/^\/listsrv$/, async (msg) => {
+  const chatId = msg.chat.id;
+
+  if (chatId.toString() !== settings.exGroupId) {
+  const ownerUsers = JSON.parse(fs.readFileSync(OWNER_FILE));
+  const isOwner = ownerUsers.includes(String(msg.from.id));
+
+  if (!isOwner) {
+    return bot.sendMessage(chatId, "ᴋʜᴜꜱᴜꜱ ᴅɪ ᴘᴀɴᴇʟ ᴘᴜʙʟɪᴄ", {
+      reply_to_message_id: msg.message_id,
+      reply_markup: {
+        inline_keyboard: [[{ text: "ʙᴜʏ ᴘᴜʙʟɪᴄ", url: `https://t.me/${dev}` }]],
+      },
+    });
+  }
+}
+
+  const wait = await bot.sendMessage(chatId, "⏳");
+  try {
+    let page = 1;
+    let servers = [];
+    let totalPages = 1;
+
+    do {
+      const res = await fetch(`${domain}/api/application/servers?page=${page}`, {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${plta}`,
+        },
+      });
+      const json = await res.json();
+      if (!json.data) break;
+
+      servers = servers.concat(json.data);
+      totalPages = json.meta.pagination.total_pages;
+      page++;
+    } while (page <= totalPages);
+
+    if (servers.length === 0) {
+      return bot.editMessageText("⚠️ Tidak ada server ditemukan.", {
+        chat_id: chatId,
+        message_id: wait.message_id,
+      });
+    }
+
+    const pageSize = 10;
+    const total = servers.length;
+    const totalPage = Math.ceil(total / pageSize);
+    serverPages.set(chatId, { servers, totalPage });
+
+    const getPageText = async (p) => {
+      let start = (p - 1) * pageSize;
+      let end = Math.min(start + pageSize, total);
+      let text = `📋 ᴅᴀғᴛᴀʀ sᴇʀᴠᴇʀ :\n\n`;
+
+      for (let i = start; i < end; i++) {
+        const s = servers[i].attributes;
+        try {
+          const r = await fetch(`${domain}/api/client/servers/${s.uuid.split("-")[0]}/resources`, {
+            headers: {
+              Accept: "application/json",
+              Authorization: `Bearer ${pltc}`,
+            },
+          });
+          const d = await r.json();
+          const status = d.attributes ? d.attributes.current_state : "unknown";
+          text += `ID: ${s.id}\nNama: ${s.name}\nStatus: ${status}\n\n`;
+        } catch {
+          text += `ID: ${s.id}\nNama: ${s.name}\nStatus: unknown\n\n`;
+        }
+      }
+
+      return text.trim();
+    };
+
+    const text = await getPageText(1);
+    await bot.editMessageText(text, {
+      chat_id: chatId,
+      message_id: wait.message_id,
+      reply_markup: {
+        inline_keyboard: [[
+          { text: "(1/" + totalPage + ")", callback_data: "none" },
+          { text: "➡️", callback_data: "srv_next_1" }
+        ]],
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    bot.editMessageText("❌ Gagal mengambil data server.", {
+      chat_id: chatId,
+      message_id: wait.message_id,
+    });
+  }
+});
+
+bot.on("callback_query", async (q) => {
+  const chatId = q.message.chat.id;
+  const data = q.data;
+
+  if (!data.startsWith("srv_")) return;
+
+  try {
+    const saved = serverPages.get(chatId);
+    if (!saved) return;
+
+    let currentPage = parseInt(data.split("_")[2]);
+    let newPage = data.includes("next") ? currentPage + 1 : currentPage - 1;
+    if (newPage < 1 || newPage > saved.totalPage) return;
+
+    const getPageText = async (p) => {
+      const { servers, totalPage } = saved;
+      const pageSize = 10;
+      let start = (p - 1) * pageSize;
+      let end = Math.min(start + pageSize, servers.length);
+      let text = `📋 ᴅᴀғᴛᴀʀ sᴇʀᴠᴇʀ :\n\n`;
+
+      for (let i = start; i < end; i++) {
+        const s = servers[i].attributes;
+        text += `ID: ${s.id}\nNama: ${s.name}\nStatus: ${s.status || "unknown"}\n\n`;
+      }
+
+      return text.trim();
+    };
+
+    const newText = await getPageText(newPage);
+    const { totalPage } = saved;
+    const pageInfo = { text: `(${newPage}/${totalPage})`, callback_data: "none" };
+    const keyboard = [];
+
+    if (newPage > 1 && newPage < totalPage) {
+      keyboard.push(
+        { text: "⬅️", callback_data: `srv_prev_${newPage}` },
+        pageInfo,
+        { text: "➡️", callback_data: `srv_next_${newPage}` }
+      );
+    } else if (newPage > 1) {
+      keyboard.push(
+        { text: "⬅️", callback_data: `srv_prev_${newPage}` },
+        pageInfo
+      );
+    } else if (newPage < totalPage) {
+      keyboard.push(
+        pageInfo,
+        { text: "➡️", callback_data: `srv_next_${newPage}` }
+      );
+    } else {
+      keyboard.push(pageInfo);
+    }
+
+    await bot.editMessageText(newText, {
+      chat_id: chatId,
+      message_id: q.message.message_id,
+      reply_markup: { inline_keyboard: [keyboard] },
+    });
+
+    await bot.answerCallbackQuery(q.id);
+  } catch (err) {
+    console.error("Callback error:", err.message);
+  }
+});
+    
+}
