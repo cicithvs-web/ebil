@@ -1505,6 +1505,8 @@ function installPanel(chatId, ip, password, domainpanel) {
             if (out.includes("Password for the initial admin account")) stream.write(`${passPanel}\n`);
             if (out.includes("Set the FQDN")) stream.write(`${domainpanel}\n`);
             if (out.includes("(y/N)")) stream.write("y\n");
+            if (out.includes("(Y)es/(N)o")) stream.write("Y\n");
+            else if (out.includes("Do you agree?")) stream.write("Y\n");
             if (out.includes("Enable sending anonymous telemetry")) stream.write("yes\n");
           } catch (e) {
             // ignore write errors
